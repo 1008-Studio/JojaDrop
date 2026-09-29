@@ -40,6 +40,13 @@ for (int i = 0; i < 10; i++)
 ExpectRollException(-0.01d);
 ExpectRollException(1.01d);
 
+foreach (UpgradeTransactionStatus status in Enum.GetValues<UpgradeTransactionStatus>())
+{
+    bool expected = status == UpgradeTransactionStatus.Success;
+    if (new UpgradeTransactionResult(status).IsSuccess != expected)
+        throw new InvalidOperationException($"Incorrect transaction result for {status}.");
+}
+
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
     try
