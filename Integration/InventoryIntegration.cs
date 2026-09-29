@@ -1,5 +1,6 @@
 using JojaDrop.Services;
 using JojaDrop.UI;
+using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
@@ -13,13 +14,15 @@ internal sealed class InventoryIntegration
     private readonly IModHelper helper;
     private readonly IMonitor monitor;
     private readonly ItemValueService itemValues;
-    private readonly PerScreen<UpgradeButton> buttons = new(() => new UpgradeButton());
+    private readonly PerScreen<UpgradeButton> buttons;
 
     public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues)
     {
         this.helper = helper;
         this.monitor = monitor;
         this.itemValues = itemValues;
+        Texture2D buttonTexture = helper.ModContent.Load<Texture2D>("assets/upgrade-button.png");
+        buttons = new PerScreen<UpgradeButton>(() => new UpgradeButton(buttonTexture));
     }
 
     public void RegisterEvents()
