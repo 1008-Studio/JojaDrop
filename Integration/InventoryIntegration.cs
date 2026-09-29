@@ -1,0 +1,73 @@
+using JojaDrop.Services;
+using JojaDrop.UI;
+using StardewModdingAPI;
+using StardewModdingAPI.Events;
+using StardewModdingAPI.Utilities;
+using StardewValley;
+using StardewValley.Menus;
+
+namespace JojaDrop.Integration;
+
+internal sealed class InventoryIntegration
+{
+    private readonly IModHelper helper;
+    private readonly IMonitor monitor;
+    private readonly ItemValueService itemValues;
+    private readonly PerScreen<UpgradeButton> buttons = new(() => new UpgradeButton());
+
+    public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues)
+    {
+        this.helper = helper;
+        this.monitor = monitor;
+        this.itemValues = itemValues;
+    }
+
+    public void RegisterEvents()
+    {
+        helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
+        helper.Events.Input.ButtonPressed += OnButtonPressed;
+    }
+
+    private static GameMenu? GetInventoryMenu()
+    {
+        return Context.IsWorldReady
+            && Game1.activeClickableMenu is GameMenu menu
+            && menu.GetCurrentPage() is InventoryPage
+            && menu.GetChildMenu() is null
+            && menu.GetCurrentPage().GetChildMenu() is null
+            ? menu
+            : null;
+    }
+
+    private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
+    {
+        GameMenu? menu = GetInventoryMenu();
+        if (menu is null)
+            return;
+
+        UpgradeButton button = buttons.Value;
+        button.UpdateLayout(menu);
+        button.Draw(e.SpriteBatch, Game1.getMouseX(true), Game1.getMouseY(true), menu.readyToClose());
+        menu.drawMouse(e.SpriteBatch);
+    }
+
+    private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
+    {
+        GameMenu? menu = GetInventoryMenu();
+        if (menu is null || !menu.readyToClose() || helper.Input.IsSuppressed(e.Button))
+            return;
+
+        UpgradeButton button = buttons.Value;
+        button.UpdateLayout(menu);
+        bool clicked = e.Button == SButton.MouseLeft
+            && button.Contains(Game1.getMouseX(true), Game1.getMouseY(true));
+        bool shortcut = e.Button is SButton.U or SButton.RightStick;
+        if (!clicked && !shortcut)
+            return;
+
+        helper.Input.Suppress(e.Button);
+        Game1.playSound("bigSelect");
+        Game1.activeClickableMenu = new UpgradeMenu(itemValues);
+        monitor.Log("Opened JojaDrop upgrader.", LogLevel.Trace);
+    }
+}
