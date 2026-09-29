@@ -1,6 +1,7 @@
 using JojaDrop.Services;
 
 var calculator = new UpgradeCalculator();
+var roller = new UpgradeRoller();
 
 foreach (var (source, target, expected) in new[]
 {
@@ -27,6 +28,18 @@ ExpectException<ArgumentException>(1000, 1000, "targetValue");
 ExpectException<ArgumentException>(1000, 500, "targetValue");
 ExpectException<ArgumentException>(int.MaxValue, int.MaxValue, "targetValue");
 
+for (int i = 0; i < 10; i++)
+{
+    if (roller.Roll(0d))
+        throw new InvalidOperationException("Chance 0 must always fail.");
+
+    if (!roller.Roll(1d))
+        throw new InvalidOperationException("Chance 1 must always succeed.");
+}
+
+ExpectRollException(-0.01d);
+ExpectRollException(1.01d);
+
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
     try
@@ -38,4 +51,18 @@ void ExpectException<TException>(int source, int target, string parameter) where
         return;
     }
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for {source} -> {target}.");
+}
+
+void ExpectRollException(double chance)
+{
+    try
+    {
+        roller.Roll(chance);
+    }
+    catch (ArgumentOutOfRangeException exception) when (exception.ParamName == "chance")
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"Expected ArgumentOutOfRangeException for chance {chance}.");
 }

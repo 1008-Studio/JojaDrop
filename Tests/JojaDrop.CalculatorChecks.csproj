@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Services/UpgradeCalculator.cs" Link="UpgradeCalculator.cs" />
+    <Compile Include="../Services/UpgradeRoller.cs" Link="UpgradeRoller.cs" />
   </ItemGroup>
 </Project>
