@@ -1,3 +1,4 @@
+using JojaDrop.Models;
 using JojaDrop.Services;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -21,22 +22,29 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int ItemNameGap = 12;
     private const int ItemValueGap = 40;
     private const int ChanceTopOffset = 16;
+    private const int MultiplierTopOffset = 56;
     private const int SourceId = 100;
     private const int TargetId = 101;
     private const int UpgradeId = 102;
     private const int CloseId = 103;
     private readonly ItemValueService itemValues;
+    private readonly UpgradeCalculator upgradeCalculator;
+    private readonly TargetItemProvider targetItemProvider;
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
     private Item? sourceItem;
+    private TargetItemOption? targetOption;
     private string hoverText = "";
+    private string statusMessage = "";
     private Point viewportSize;
     private float layoutScale;
 
-    public UpgradeMenu(ItemValueService itemValues)
+    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, TargetItemProvider targetItemProvider)
     {
         this.itemValues = itemValues;
+        this.upgradeCalculator = upgradeCalculator;
+        this.targetItemProvider = targetItemProvider;
         UpdateLayout();
     }
 
@@ -96,7 +104,10 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (viewportSize.X != Game1.uiViewport.Width || viewportSize.Y != Game1.uiViewport.Height)
             UpdateLayout();
         if (sourceItem is not null && !Game1.player.Items.Any(item => ReferenceEquals(item, sourceItem)))
+        {
             sourceItem = null;
+            targetOption = null;
+        }
     }
 
     public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds) => UpdateLayout();
@@ -108,18 +119,44 @@ internal sealed class UpgradeMenu : IClickableMenu
             exitThisMenu();
             return;
         }
-        if (!sourceSlot.containsPoint(x, y))
-            return;
-
-        if (playSound)
-            Game1.playSound("smallSelect");
-        Game1.activeClickableMenu = new SourceItemMenu(itemValues, item =>
+        if (sourceSlot.containsPoint(x, y))
         {
-            if (item is not null)
-                sourceItem = item;
-            Game1.activeClickableMenu = this;
-            UpdateLayout();
-        });
+            if (playSound)
+                Game1.playSound("smallSelect");
+            Game1.activeClickableMenu = new SourceItemMenu(itemValues, item =>
+            {
+                if (item is not null)
+                {
+                    sourceItem = item;
+                    targetOption = null;
+                    statusMessage = "";
+                }
+                Game1.activeClickableMenu = this;
+                UpdateLayout();
+            });
+            return;
+        }
+        if (targetSlot.containsPoint(x, y) && sourceItem is not null)
+        {
+            if (playSound)
+                Game1.playSound("smallSelect");
+            Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem), option =>
+            {
+                if (option is not null)
+                {
+                    targetOption = option;
+                    statusMessage = "";
+                }
+                Game1.activeClickableMenu = this;
+                UpdateLayout();
+            });
+            return;
+        }
+        if (upgradeButton.containsPoint(x, y) && HasUpgradeSelection)
+        {
+            Game1.playSound("cancel");
+            statusMessage = "Upgrade execution is coming in the next milestone.";
+        }
     }
 
     public override void receiveKeyPress(Keys key)
@@ -142,8 +179,9 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         base.performHoverAction(x, y);
         hoverText = sourceSlot.containsPoint(x, y) ? "Choose an item from your inventory.\nSelection leaves it in your backpack."
-            : targetSlot.containsPoint(x, y) ? "Target Item\nTarget selection is coming in a later milestone."
-            : upgradeButton.containsPoint(x, y) ? "Upgrade is unavailable in this prototype.\nNo items will be consumed."
+            : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
+            : targetSlot.containsPoint(x, y) ? "Choose a target item."
+            : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Upgrade execution is coming in the next milestone.\nNo items will be consumed."
             : "";
     }
 
@@ -151,12 +189,16 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         MenuDrawing.Panel(b, this);
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
-        DrawItemSlot(b, sourceSlot, "Your Item", sourceItem);
-        DrawItemSlot(b, targetSlot, "Target Item", null);
-        MenuDrawing.CenteredText(b, "0%", xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(ChanceTopOffset), Color.SteelBlue, 1.5f * layoutScale);
+        DrawItemSlot(b, sourceSlot, "Your Item", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem));
+        DrawItemSlot(b, targetSlot, "Target Item", targetOption?.PreviewItem, targetOption?.Value, sourceItem is not null);
+        MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(ChanceTopOffset), Color.SteelBlue, 1.5f * layoutScale);
+        MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(MultiplierTopOffset), Color.SteelBlue, layoutScale);
         MenuDrawing.TextButton(b, upgradeButton, "UPGRADE", upgradeButton.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)),
-            enabled: false, textScale: layoutScale);
-        string status = sourceItem is null ? "Select an item to begin." : "Source selected. Target selection is coming soon.";
+            enabled: HasUpgradeSelection, textScale: layoutScale);
+        string status = statusMessage.Length > 0 ? statusMessage
+            : sourceItem is null ? "Select an item to begin."
+            : targetOption is null ? "Select a target item."
+            : "Target selected. Upgrade preview is ready.";
         MenuDrawing.CenteredText(b, MenuDrawing.FitText(status, width - MenuDrawing.ScreenMargin * 2),
             xPositionOnScreen + width / 2, yPositionOnScreen + height - Scale(StatusBottomOffset), scale: layoutScale);
         base.draw(b);
@@ -165,16 +207,43 @@ internal sealed class UpgradeMenu : IClickableMenu
         drawMouse(b);
     }
 
-    private void DrawItemSlot(SpriteBatch b, ClickableComponent slot, string label, Item? item)
+    private bool HasUpgradeSelection => sourceItem is not null && targetOption is not null;
+
+    private string GetChanceText()
+    {
+        return TryGetUpgradePreview(out double chance, out _) ? $"{chance * 100:0.00}%" : "--";
+    }
+
+    private string GetMultiplierText()
+    {
+        return TryGetUpgradePreview(out _, out double multiplier) ? $"x{multiplier:0.00}" : "--";
+    }
+
+    private bool TryGetUpgradePreview(out double chance, out double multiplier)
+    {
+        chance = 0;
+        multiplier = 0;
+        if (sourceItem is null || targetOption is null)
+            return false;
+
+        int? sourceValue = itemValues.GetValue(sourceItem);
+        if (!sourceValue.HasValue || sourceValue.Value <= 0 || targetOption.Value <= sourceValue.Value)
+            return false;
+
+        chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetOption.Value);
+        multiplier = (double)targetOption.Value / sourceValue.Value;
+        return true;
+    }
+
+    private void DrawItemSlot(SpriteBatch b, ClickableComponent slot, string label, Item? item, int? value, bool enabled = true)
     {
         MenuDrawing.CenteredText(b, label, slot.bounds.Center.X, slot.bounds.Y - Scale(LabelGap), scale: layoutScale);
-        MenuDrawing.Slot(b, slot.bounds, item, slot.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)));
+        MenuDrawing.Slot(b, slot.bounds, item, slot.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)), enabled);
         string name = item?.DisplayName ?? "Empty";
         MenuDrawing.CenteredText(b, MenuDrawing.FitText(name, width / 3), slot.bounds.Center.X,
             slot.bounds.Bottom + Scale(ItemNameGap), scale: layoutScale);
         if (item is not null)
         {
-            int? value = itemValues.GetValue(item);
             MenuDrawing.CenteredText(b, value.HasValue ? $"{value.Value:N0}g / item" : "Value unavailable",
                 slot.bounds.Center.X, slot.bounds.Bottom + Scale(ItemValueGap), scale: layoutScale);
         }

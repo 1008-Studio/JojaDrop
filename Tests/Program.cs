@@ -18,13 +18,13 @@ foreach (var (source, target, expected) in new[]
 }
 
 foreach (int source in new[] { 0, -1, int.MinValue })
-    ExpectException<ArgumentOutOfRangeException>(source, 2000, "sourceValue");
+    ExpectException<ArgumentOutOfRangeException>(source, 1000, "sourceValue");
 
 foreach (int target in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(1000, target, "targetValue");
 
 ExpectException<ArgumentException>(1000, 1000, "targetValue");
-ExpectException<ArgumentException>(2000, 1000, "targetValue");
+ExpectException<ArgumentException>(1000, 500, "targetValue");
 ExpectException<ArgumentException>(int.MaxValue, int.MaxValue, "targetValue");
 
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException

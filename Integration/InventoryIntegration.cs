@@ -14,13 +14,17 @@ internal sealed class InventoryIntegration
     private readonly IModHelper helper;
     private readonly IMonitor monitor;
     private readonly ItemValueService itemValues;
+    private readonly UpgradeCalculator upgradeCalculator;
+    private readonly TargetItemProvider targetItemProvider;
     private readonly PerScreen<UpgradeButton> buttons;
 
-    public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues)
+    public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues, UpgradeCalculator upgradeCalculator)
     {
         this.helper = helper;
         this.monitor = monitor;
         this.itemValues = itemValues;
+        this.upgradeCalculator = upgradeCalculator;
+        targetItemProvider = new TargetItemProvider(itemValues, upgradeCalculator, monitor);
         Texture2D buttonTexture = helper.ModContent.Load<Texture2D>("assets/upgrade-button.png");
         buttons = new PerScreen<UpgradeButton>(() => new UpgradeButton(buttonTexture));
     }
@@ -70,7 +74,7 @@ internal sealed class InventoryIntegration
 
         helper.Input.Suppress(e.Button);
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new UpgradeMenu(itemValues);
+        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, targetItemProvider);
         monitor.Log("Opened JojaDrop upgrader.", LogLevel.Trace);
     }
 }
