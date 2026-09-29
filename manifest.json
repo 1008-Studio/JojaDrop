@@ -1,8 +1,8 @@
 {
   "Name": "JojaDrop",
   "Author": "1008 Studio",
-  "Version": "0.1.0",
-  "Description": "A Stardew-style item upgrader prototype. Browse your inventory and preview a source item without consuming it.",
+  "Version": "0.2.0",
+  "Description": "A Stardew-style item upgrader prototype. Choose source and target items without consuming or creating items.",
   "UniqueID": "1008Studio.JojaDrop",
   "EntryDll": "JojaDrop.dll",
   "MinimumApiVersion": "4.5.2",

@@ -2,7 +2,7 @@
 
 JojaDrop is a SMAPI mod for Stardew Valley with an item upgrader concept: choose a source item and a more valuable target, with a future success chance of `sourceValue / targetValue`.
 
-Milestone v0.1 provides a Stardew-style UI prototype and a read-only source item picker. Upgrading, item consumption, rewards, and random rolls are not implemented.
+Milestone v0.2 provides a Stardew-style source and target picker with a read-only upgrade preview. Upgrading, item consumption, rewards, and random rolls are not implemented.
 
 ## Requirements
 
@@ -58,6 +58,7 @@ UI/
     UpgradeButton.cs
     UpgradeMenu.cs
     SourceItemMenu.cs
+    TargetItemMenu.cs
     MenuDrawing.cs
 Services/
     ItemValueService.cs
@@ -69,13 +70,13 @@ README.md
 .gitignore
 ```
 
-`ModEntry` wires up the mod. `InventoryIntegration` owns SMAPI rendering and input events. UI classes draw the button, upgrader, and source picker using game textures and drawing helpers. Price and probability rules live in `Services`. Asset files and target-option models will be added when needed.
+`ModEntry` wires up the mod. `InventoryIntegration` owns SMAPI rendering and input events. UI classes draw the button, upgrader, source picker, and target picker using game textures and drawing helpers. Price, target discovery, and probability rules live in `Services`.
 
 ### Value and probability rules
 
 `ItemValueService.GetValue(Item)` returns the **sale value of one item**, not the entire stack. It supports ordinary `StardewValley.Object` instances and calls the game's `sellToStorePrice` for the current player, preserving the game's quality, profession, and profit-margin rules. Recipes, quest items, big craftables, non-shippable objects, specialized subclasses, and nonpositive prices return `null`. Unsupported items are dimmed in the picker. There are no invented fallback prices or item ID lists.
 
-`UpgradeCalculator.CalculateChance(int, int)` is isolated from Stardew and returns a probability in `0..1`. Nonpositive inputs throw `ArgumentOutOfRangeException`; targets worth no more than the source throw `ArgumentException`. For valid upgrades it uses floating-point division and clamps the result. It performs no random roll. The menu's `0%` is a placeholder until target selection is implemented.
+`UpgradeCalculator.CalculateChance(int, int)` is isolated from Stardew and returns a probability in `0..1`. Nonpositive inputs throw `ArgumentOutOfRangeException`; targets worth no more than the source throw `ArgumentException`. For valid upgrades it uses floating-point division and clamps the result. It performs no random roll. The menu shows this probability and the target multiplier only after both selections are made.
 
 ## Installation
 
@@ -90,9 +91,10 @@ Install only the packaged mod files, not the repository or game/SMAPI DLLs. No o
 
 1. Load a save and open the standard player menu (`E` by default), then select its **Inventory** tab.
 2. Click the upward-arrow button on the right. Its hover tooltip reads **JojaDrop Upgrader**. You can also press **U** or click the controller's **right stick** while on the Inventory tab.
-3. The JojaDrop panel opens with Your Item, Target Item, a `0%` placeholder, and a disabled Upgrade button.
+3. The JojaDrop panel opens with Your Item, Target Item, `--` probability/multiplier, and a disabled Upgrade button. Target Item remains unavailable until a source is selected.
 4. Click **Your Item** and choose a supported inventory object. Its icon, display name, and sale value per item appear in the source slot. The original item and its stack stay in your backpack.
-5. Close the picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
+5. Click **Target Item** and choose a more valuable candidate. The panel shows its icon, name, value, probability, and multiplier. Upgrade remains preview-only.
+6. Close either picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
 
 Directional controller navigation uses clickable components in both custom menus; A activates the focused component. The picker also supports shoulder buttons, mouse wheel, and Previous/Next buttons for pagination.
 
@@ -104,22 +106,25 @@ The inventory button is rendered through `RenderedActiveMenu` and activated thro
 - Confirm the button appears only on Inventory, and vanilla tabs, equipment, trash can, and item drag/drop still work.
 - Check button hover, tooltip, and opening sound; try opening while holding an inventory item.
 - Choose an object, verify its name and per-item value, and confirm its stack is unchanged after closing/reopening menus.
-- Confirm unsupported items cannot be selected and Upgrade stays disabled.
+- Confirm target selection is unavailable without a source, target values exceed the source, and candidates are value-sorted.
+- Confirm source/target selection shows the expected probability and multiplier; changing or removing the source clears the target.
+- Confirm Upgrade remains preview-only: it does not change either inventory item or stack.
 - Check picker cancellation, close cross, Esc, and controller navigation/A/B.
 - Try window resizing and different UI scales, including a narrow viewport and paginated inventory.
 
 ## Current status
 
-Milestone v0.1
+Milestone v0.2
 
 - [x] SMAPI mod foundation
 - [x] Inventory Upgrade button
 - [x] Upgrade menu shell
 - [x] Source item selection
-- [ ] Target item selection
-- [ ] Upgrade probability
+- [x] Target item selection
+- [x] Upgrade probability
+- [ ] Upgrade execution
 - [ ] Upgrade animation
 - [ ] Success/failure
 - [ ] Multiplayer
 
-The probability calculator is implemented and checked in isolation; applying it to selected source/target items in the UI remains TODO. Multiplayer synchronization, persistent state, broader item valuation, and other mod integrations are future work.
+Target selection and probability are preview-only. Multiplayer synchronization, persistent state, broader item valuation, upgrade execution, and other mod integrations are future work.
