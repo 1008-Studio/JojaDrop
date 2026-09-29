@@ -1,8 +1,8 @@
 {
   "Name": "JojaDrop",
   "Author": "1008 Studio",
-  "Version": "0.2.0",
-  "Description": "A Stardew-style item upgrader prototype. Choose source and target items without consuming or creating items.",
+  "Version": "0.3.0",
+  "Description": "A Stardew-style item upgrader with probability-based success and failure.",
   "UniqueID": "1008Studio.JojaDrop",
   "EntryDll": "JojaDrop.dll",
   "MinimumApiVersion": "4.5.2",

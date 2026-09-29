@@ -1,6 +1,7 @@
 using JojaDrop.Services;
 
 var calculator = new UpgradeCalculator();
+var roller = new UpgradeRoller();
 
 foreach (var (source, target, expected) in new[]
 {
@@ -27,6 +28,33 @@ ExpectException<ArgumentException>(1000, 1000, "targetValue");
 ExpectException<ArgumentException>(1000, 500, "targetValue");
 ExpectException<ArgumentException>(int.MaxValue, int.MaxValue, "targetValue");
 
+for (int i = 0; i < 10; i++)
+{
+    if (roller.Roll(0d))
+        throw new InvalidOperationException("Chance 0 must always fail.");
+
+    if (!roller.Roll(1d))
+        throw new InvalidOperationException("Chance 1 must always succeed.");
+}
+
+ExpectRollException(-0.01d);
+ExpectRollException(1.01d);
+
+if (!new UpgradeRoller(new FixedRandom(0.49d)).Roll(0.5d)
+    || new UpgradeRoller(new FixedRandom(0.5d)).Roll(0.5d)
+    || !new UpgradeRoller(new FixedRandom(0.09d)).Roll(0.1d)
+    || new UpgradeRoller(new FixedRandom(0.1d)).Roll(0.1d))
+{
+    throw new InvalidOperationException("UpgradeRoller must use a strict less-than comparison.");
+}
+
+foreach (UpgradeTransactionStatus status in Enum.GetValues<UpgradeTransactionStatus>())
+{
+    bool expected = status == UpgradeTransactionStatus.Success;
+    if (new UpgradeTransactionResult(status).IsSuccess != expected)
+        throw new InvalidOperationException($"Incorrect transaction result for {status}.");
+}
+
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
     try
@@ -38,4 +66,23 @@ void ExpectException<TException>(int source, int target, string parameter) where
         return;
     }
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for {source} -> {target}.");
+}
+
+void ExpectRollException(double chance)
+{
+    try
+    {
+        roller.Roll(chance);
+    }
+    catch (ArgumentOutOfRangeException exception) when (exception.ParamName == "chance")
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"Expected ArgumentOutOfRangeException for chance {chance}.");
+}
+
+sealed class FixedRandom(double value) : Random
+{
+    public override double NextDouble() => value;
 }

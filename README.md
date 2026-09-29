@@ -1,8 +1,8 @@
 # JojaDrop
 
-JojaDrop is a SMAPI mod for Stardew Valley with an item upgrader concept: choose a source item and a more valuable target, with a future success chance of `sourceValue / targetValue`.
+JojaDrop is a SMAPI mod for Stardew Valley with an item upgrader: choose a source item and a more valuable target, then attempt the upgrade with probability `sourceValue / targetValue`.
 
-Milestone v0.2 provides a Stardew-style source and target picker with a read-only upgrade preview. Upgrading, item consumption, rewards, and random rolls are not implemented.
+Milestone v0.3 provides source and target selection, probability calculation, and safe upgrade execution. A successful attempt consumes one source item and creates one new target item; a failed attempt consumes one source item.
 
 ## Requirements
 
@@ -63,6 +63,9 @@ UI/
 Services/
     ItemValueService.cs
     UpgradeCalculator.cs
+    UpgradeRoller.cs
+    UpgradeTransactionService.cs
+    UpgradeTransactionResult.cs
 Tests/
     JojaDrop.CalculatorChecks.csproj
     Program.cs
@@ -93,8 +96,9 @@ Install only the packaged mod files, not the repository or game/SMAPI DLLs. No o
 2. Click the upward-arrow button on the right. Its hover tooltip reads **JojaDrop Upgrader**. You can also press **U** or click the controller's **right stick** while on the Inventory tab.
 3. The JojaDrop panel opens with Your Item, Target Item, `--` probability/multiplier, and a disabled Upgrade button. Target Item remains unavailable until a source is selected.
 4. Click **Your Item** and choose a supported inventory object. Its icon, display name, and sale value per item appear in the source slot. The original item and its stack stay in your backpack.
-5. Click **Target Item** and choose a more valuable candidate. The panel shows its icon, name, value, probability, and multiplier. Upgrade remains preview-only.
-6. Close either picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
+5. Click **Target Item** and choose a more valuable candidate. The panel shows its icon, name, value, probability, and multiplier.
+6. Click **UPGRADE** to make one attempt. Success replaces one source item with a newly created target item; failure consumes one source item. The selection clears after a completed attempt.
+7. Close either picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
 
 Directional controller navigation uses clickable components in both custom menus; A activates the focused component. The picker also supports shoulder buttons, mouse wheel, and Previous/Next buttons for pagination.
 
@@ -108,23 +112,25 @@ The inventory button is rendered through `RenderedActiveMenu` and activated thro
 - Choose an object, verify its name and per-item value, and confirm its stack is unchanged after closing/reopening menus.
 - Confirm target selection is unavailable without a source, target values exceed the source, and candidates are value-sorted.
 - Confirm source/target selection shows the expected probability and multiplier; changing or removing the source clears the target.
-- Confirm Upgrade remains preview-only: it does not change either inventory item or stack.
+- Confirm a successful upgrade removes exactly one source item and adds one new target item; confirm failure removes exactly one source item and adds none.
+- With a full inventory, confirm a success target which cannot stack leaves the source unchanged and reports the inventory-full status.
+- Double-click Upgrade and confirm only one attempt is made until source or target is selected again.
 - Check picker cancellation, close cross, Esc, and controller navigation/A/B.
 - Try window resizing and different UI scales, including a narrow viewport and paginated inventory.
 
 ## Current status
 
-Milestone v0.2
+Milestone v0.3
 
 - [x] SMAPI mod foundation
 - [x] Inventory Upgrade button
 - [x] Upgrade menu shell
-- [x] Source item selection
-- [x] Target item selection
+- [x] Source selection
+- [x] Target selection
 - [x] Upgrade probability
-- [ ] Upgrade execution
+- [x] Upgrade execution
 - [ ] Upgrade animation
-- [ ] Success/failure
+- [x] Success/failure
 - [ ] Multiplayer
 
-Target selection and probability are preview-only. Multiplayer synchronization, persistent state, broader item valuation, upgrade execution, and other mod integrations are future work.
+Multiplayer synchronization, upgrade animation, persistent state, broader item valuation, and other mod integrations are future work.

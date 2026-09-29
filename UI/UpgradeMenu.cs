@@ -3,6 +3,7 @@ using JojaDrop.Services;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 
@@ -29,7 +30,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int CloseId = 103;
     private readonly ItemValueService itemValues;
     private readonly UpgradeCalculator upgradeCalculator;
+    private readonly UpgradeRoller upgradeRoller;
+    private readonly UpgradeTransactionService transactionService;
     private readonly TargetItemProvider targetItemProvider;
+    private readonly IMonitor monitor;
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
@@ -39,12 +43,18 @@ internal sealed class UpgradeMenu : IClickableMenu
     private string statusMessage = "";
     private Point viewportSize;
     private float layoutScale;
+    private bool isProcessingUpgrade;
+    private bool hasRolledCurrentSelection;
 
-    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, TargetItemProvider targetItemProvider)
+    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
+        UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor)
     {
         this.itemValues = itemValues;
         this.upgradeCalculator = upgradeCalculator;
+        this.upgradeRoller = upgradeRoller;
+        this.transactionService = transactionService;
         this.targetItemProvider = targetItemProvider;
+        this.monitor = monitor;
         UpdateLayout();
     }
 
@@ -103,10 +113,11 @@ internal sealed class UpgradeMenu : IClickableMenu
         base.update(time);
         if (viewportSize.X != Game1.uiViewport.Width || viewportSize.Y != Game1.uiViewport.Height)
             UpdateLayout();
-        if (sourceItem is not null && !Game1.player.Items.Any(item => ReferenceEquals(item, sourceItem)))
+        if (sourceItem is not null && !IsSourceValid())
         {
             sourceItem = null;
             targetOption = null;
+            hasRolledCurrentSelection = false;
         }
     }
 
@@ -129,6 +140,7 @@ internal sealed class UpgradeMenu : IClickableMenu
                 {
                     sourceItem = item;
                     targetOption = null;
+                    hasRolledCurrentSelection = false;
                     statusMessage = "";
                 }
                 Game1.activeClickableMenu = this;
@@ -145,6 +157,7 @@ internal sealed class UpgradeMenu : IClickableMenu
                 if (option is not null)
                 {
                     targetOption = option;
+                    hasRolledCurrentSelection = false;
                     statusMessage = "";
                 }
                 Game1.activeClickableMenu = this;
@@ -152,11 +165,8 @@ internal sealed class UpgradeMenu : IClickableMenu
             });
             return;
         }
-        if (upgradeButton.containsPoint(x, y) && HasUpgradeSelection)
-        {
-            Game1.playSound("cancel");
-            statusMessage = "Upgrade execution is coming in the next milestone.";
-        }
+        if (upgradeButton.containsPoint(x, y) && CanUpgrade)
+            ProcessUpgrade();
     }
 
     public override void receiveKeyPress(Keys key)
@@ -181,7 +191,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         hoverText = sourceSlot.containsPoint(x, y) ? "Choose an item from your inventory.\nSelection leaves it in your backpack."
             : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
             : targetSlot.containsPoint(x, y) ? "Choose a target item."
-            : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Upgrade execution is coming in the next milestone.\nNo items will be consumed."
+            : upgradeButton.containsPoint(x, y) && hasRolledCurrentSelection ? "Select an item or target to make another attempt."
+            : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Attempt an upgrade using the shown chance."
             : "";
     }
 
@@ -194,7 +205,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(ChanceTopOffset), Color.SteelBlue, 1.5f * layoutScale);
         MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(MultiplierTopOffset), Color.SteelBlue, layoutScale);
         MenuDrawing.TextButton(b, upgradeButton, "UPGRADE", upgradeButton.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)),
-            enabled: HasUpgradeSelection, textScale: layoutScale);
+            enabled: CanUpgrade, textScale: layoutScale);
         string status = statusMessage.Length > 0 ? statusMessage
             : sourceItem is null ? "Select an item to begin."
             : targetOption is null ? "Select a target item."
@@ -208,6 +219,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     }
 
     private bool HasUpgradeSelection => sourceItem is not null && targetOption is not null;
+    private bool CanUpgrade => HasUpgradeSelection && !hasRolledCurrentSelection;
 
     private string GetChanceText()
     {
@@ -227,12 +239,109 @@ internal sealed class UpgradeMenu : IClickableMenu
             return false;
 
         int? sourceValue = itemValues.GetValue(sourceItem);
-        if (!sourceValue.HasValue || sourceValue.Value <= 0 || targetOption.Value <= sourceValue.Value)
+        int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
+        if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= sourceValue.Value)
             return false;
 
-        chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetOption.Value);
-        multiplier = (double)targetOption.Value / sourceValue.Value;
+        chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
+        multiplier = (double)targetValue.Value / sourceValue.Value;
         return true;
+    }
+
+    private void ProcessUpgrade()
+    {
+        if (isProcessingUpgrade || hasRolledCurrentSelection || sourceItem is null || targetOption is null)
+            return;
+
+        isProcessingUpgrade = true;
+        try
+        {
+            Item source = sourceItem;
+            Item targetPreview = targetOption.PreviewItem;
+            if (!IsSourceValid())
+            {
+                statusMessage = "Upgrade unavailable: source item is no longer in your inventory.";
+                sourceItem = null;
+                targetOption = null;
+                hasRolledCurrentSelection = false;
+                return;
+            }
+
+            if (!IsTargetValid(targetPreview))
+            {
+                statusMessage = "Upgrade unavailable: target item is invalid.";
+                return;
+            }
+
+            int? sourceValue = itemValues.GetValue(source);
+            int? targetValue = itemValues.GetValue(targetPreview);
+            if (!sourceValue.HasValue || sourceValue.Value <= 0)
+            {
+                statusMessage = "Upgrade unavailable: source item has no valid value.";
+                return;
+            }
+            if (!targetValue.HasValue || targetValue.Value <= sourceValue.Value)
+            {
+                statusMessage = "Upgrade unavailable: target must be more valuable.";
+                return;
+            }
+
+            double chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
+            hasRolledCurrentSelection = true;
+            bool success = upgradeRoller.Roll(chance);
+            UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, success);
+            monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; sourceValue={sourceValue.Value}; "
+                + $"target={targetPreview.QualifiedItemId}; targetValue={targetValue.Value}; chance={chance:0.####}; "
+                + $"result={(success ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
+            if (!transaction.IsSuccess)
+            {
+                statusMessage = GetTransactionFailureMessage(transaction.Status);
+                return;
+            }
+
+            sourceItem = null;
+            targetOption = null;
+            hasRolledCurrentSelection = false;
+            statusMessage = success ? "Upgrade successful!" : "Upgrade failed.";
+            Game1.playSound(success ? "discoverMineral" : "cancel");
+        }
+        finally
+        {
+            isProcessingUpgrade = false;
+        }
+    }
+
+    private bool IsSourceValid()
+    {
+        return sourceItem is { Stack: > 0 } source
+            && Game1.player.Items.Any(item => ReferenceEquals(item, source));
+    }
+
+    private static bool IsTargetValid(Item? targetPreview)
+    {
+        if (targetPreview is null || string.IsNullOrWhiteSpace(targetPreview.QualifiedItemId))
+            return false;
+
+        try
+        {
+            return ItemRegistry.GetData(targetPreview.QualifiedItemId) is { IsErrorItem: false };
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static string GetTransactionFailureMessage(UpgradeTransactionStatus status)
+    {
+        return status switch
+        {
+            UpgradeTransactionStatus.SourceMissing => "Upgrade unavailable: source item is no longer in your inventory.",
+            UpgradeTransactionStatus.InventoryFull => "Upgrade could not be completed: inventory is full.",
+            UpgradeTransactionStatus.InvalidTarget => "Upgrade unavailable: target item is invalid.",
+            UpgradeTransactionStatus.TransactionFailed => "Upgrade could not be completed safely.",
+            _ => "Upgrade could not be completed."
+        };
     }
 
     private void DrawItemSlot(SpriteBatch b, ClickableComponent slot, string label, Item? item, int? value, bool enabled = true)
