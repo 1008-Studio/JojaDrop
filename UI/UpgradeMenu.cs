@@ -26,6 +26,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int UpgradeId = 102;
     private const int CloseId = 103;
     private readonly ItemValueService itemValues;
+    private readonly UpgradeCalculator upgradeCalculator;
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
@@ -34,9 +35,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     private Point viewportSize;
     private float layoutScale;
 
-    public UpgradeMenu(ItemValueService itemValues)
+    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator)
     {
         this.itemValues = itemValues;
+        this.upgradeCalculator = upgradeCalculator;
         UpdateLayout();
     }
 

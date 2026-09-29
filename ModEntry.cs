@@ -8,7 +8,8 @@ public sealed class ModEntry : Mod
 {
     public override void Entry(IModHelper helper)
     {
-        var integration = new InventoryIntegration(helper, Monitor, new ItemValueService());
+        var upgradeCalculator = new UpgradeCalculator();
+        var integration = new InventoryIntegration(helper, Monitor, new ItemValueService(), upgradeCalculator);
         integration.RegisterEvents();
         Monitor.Log("JojaDrop loaded successfully.", LogLevel.Info);
     }
