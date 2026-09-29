@@ -3,6 +3,7 @@ using JojaDrop.Services;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 
@@ -32,6 +33,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private readonly UpgradeRoller upgradeRoller;
     private readonly UpgradeTransactionService transactionService;
     private readonly TargetItemProvider targetItemProvider;
+    private readonly IMonitor monitor;
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
@@ -45,13 +47,14 @@ internal sealed class UpgradeMenu : IClickableMenu
     private bool hasRolledCurrentSelection;
 
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
-        UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider)
+        UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor)
     {
         this.itemValues = itemValues;
         this.upgradeCalculator = upgradeCalculator;
         this.upgradeRoller = upgradeRoller;
         this.transactionService = transactionService;
         this.targetItemProvider = targetItemProvider;
+        this.monitor = monitor;
         UpdateLayout();
     }
 
@@ -287,6 +290,9 @@ internal sealed class UpgradeMenu : IClickableMenu
             hasRolledCurrentSelection = true;
             bool success = upgradeRoller.Roll(chance);
             UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, success);
+            monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; sourceValue={sourceValue.Value}; "
+                + $"target={targetPreview.QualifiedItemId}; targetValue={targetValue.Value}; chance={chance:0.####}; "
+                + $"result={(success ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
             if (!transaction.IsSuccess)
             {
                 statusMessage = GetTransactionFailureMessage(transaction.Status);
@@ -333,6 +339,7 @@ internal sealed class UpgradeMenu : IClickableMenu
             UpgradeTransactionStatus.SourceMissing => "Upgrade unavailable: source item is no longer in your inventory.",
             UpgradeTransactionStatus.InventoryFull => "Upgrade could not be completed: inventory is full.",
             UpgradeTransactionStatus.InvalidTarget => "Upgrade unavailable: target item is invalid.",
+            UpgradeTransactionStatus.TransactionFailed => "Upgrade could not be completed safely.",
             _ => "Upgrade could not be completed."
         };
     }

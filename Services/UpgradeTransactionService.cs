@@ -14,22 +14,48 @@ public sealed class UpgradeTransactionService
 
         if (!success)
         {
-            RemoveOne(player, sourceItem);
-            return new(UpgradeTransactionStatus.Success);
+            return TryRemoveOne(player, sourceItem)
+                ? new(UpgradeTransactionStatus.Success)
+                : new(UpgradeTransactionStatus.TransactionFailed);
         }
 
-        if (!TryCreateTarget(targetPreview, out Item? target))
+        if (!TryCreateTarget(targetPreview, out Item? target) || target is null)
             return new(UpgradeTransactionStatus.InvalidTarget);
 
-        // A one-item source frees its own slot; otherwise the target must fit now.
-        if (sourceItem.Stack > 1 && !player.couldInventoryAcceptThisItem(target))
-            return new(UpgradeTransactionStatus.InventoryFull);
+        try
+        {
+            // A one-item source frees its own slot; otherwise the target must fit now.
+            if (sourceItem.Stack > 1 && !player.couldInventoryAcceptThisItem(target))
+                return new(UpgradeTransactionStatus.InventoryFull);
+        }
+        catch (Exception)
+        {
+            return new(UpgradeTransactionStatus.TransactionFailed);
+        }
 
         int sourceStack = sourceItem.Stack;
-        RemoveOne(player, sourceItem);
+        try
+        {
+            RemoveOne(player, sourceItem);
+        }
+        catch (Exception)
+        {
+            return new(UpgradeTransactionStatus.TransactionFailed);
+        }
 
-        if (player.addItemToInventory(target) is null)
-            return new(UpgradeTransactionStatus.Success);
+        try
+        {
+            if (player.addItemToInventory(target) is null)
+                return new(UpgradeTransactionStatus.Success);
+        }
+        catch (Exception)
+        {
+            if (WasTargetAdded(player, target))
+                return new(UpgradeTransactionStatus.Success);
+
+            RestoreSource(player, sourceItem, sourceStack);
+            return new(UpgradeTransactionStatus.TransactionFailed);
+        }
 
         RestoreSource(player, sourceItem, sourceStack);
         return new(UpgradeTransactionStatus.InventoryFull);
@@ -54,6 +80,24 @@ public sealed class UpgradeTransactionService
             sourceItem.Stack++;
         else
             player.addItemToInventory(sourceItem);
+    }
+
+    private static bool TryRemoveOne(Farmer player, Item sourceItem)
+    {
+        try
+        {
+            RemoveOne(player, sourceItem);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool WasTargetAdded(Farmer player, Item target)
+    {
+        return target.Stack <= 0 || player.Items.Any(item => ReferenceEquals(item, target));
     }
 
     private static bool TryCreateTarget(Item? targetPreview, out Item? target)

@@ -5,7 +5,8 @@ public enum UpgradeTransactionStatus
     Success,
     SourceMissing,
     InventoryFull,
-    InvalidTarget
+    InvalidTarget,
+    TransactionFailed
 }
 
 public readonly record struct UpgradeTransactionResult(UpgradeTransactionStatus Status)

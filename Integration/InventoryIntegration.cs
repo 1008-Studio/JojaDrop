@@ -79,7 +79,7 @@ internal sealed class InventoryIntegration
 
         helper.Input.Suppress(e.Button);
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService, targetItemProvider);
+        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService, targetItemProvider, monitor);
         monitor.Log("Opened JojaDrop upgrader.", LogLevel.Trace);
     }
 }

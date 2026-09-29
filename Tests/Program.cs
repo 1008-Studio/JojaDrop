@@ -40,6 +40,14 @@ for (int i = 0; i < 10; i++)
 ExpectRollException(-0.01d);
 ExpectRollException(1.01d);
 
+if (!new UpgradeRoller(new FixedRandom(0.49d)).Roll(0.5d)
+    || new UpgradeRoller(new FixedRandom(0.5d)).Roll(0.5d)
+    || !new UpgradeRoller(new FixedRandom(0.09d)).Roll(0.1d)
+    || new UpgradeRoller(new FixedRandom(0.1d)).Roll(0.1d))
+{
+    throw new InvalidOperationException("UpgradeRoller must use a strict less-than comparison.");
+}
+
 foreach (UpgradeTransactionStatus status in Enum.GetValues<UpgradeTransactionStatus>())
 {
     bool expected = status == UpgradeTransactionStatus.Success;
@@ -72,4 +80,9 @@ void ExpectRollException(double chance)
     }
 
     throw new InvalidOperationException($"Expected ArgumentOutOfRangeException for chance {chance}.");
+}
+
+sealed class FixedRandom(double value) : Random
+{
+    public override double NextDouble() => value;
 }
