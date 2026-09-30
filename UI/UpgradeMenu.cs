@@ -470,6 +470,23 @@ internal sealed class UpgradeMenu : IClickableMenu
         pendingSourceQuantity = 0;
         pendingOutputQuantity = 0;
 
+        if (sourceQuantity < 1 || outputQuantity < 1 || outputQuantity > sourceQuantity)
+        {
+            statusMessage = "Upgrade unavailable: invalid batch quantity.";
+            hasRolledCurrentSelection = false;
+            return;
+        }
+
+        int? sourceValue = itemValues.GetValue(source);
+        int? targetValue = itemValues.GetValue(targetPreview);
+        if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
+            || !targetValue.HasValue || targetValue.Value <= sourceValue.Value)
+        {
+            statusMessage = "Upgrade unavailable: target is no longer valid.";
+            hasRolledCurrentSelection = false;
+            return;
+        }
+
         UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview,
             sourceQuantity, outputQuantity, rouletteResult);
         monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; "
