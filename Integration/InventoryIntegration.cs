@@ -42,7 +42,7 @@ internal sealed class InventoryIntegration
 
     public void RegisterEvents()
     {
-        helper.Events.Display.RenderingActiveMenu += OnRenderingActiveMenu;
+        helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
 
@@ -57,7 +57,7 @@ internal sealed class InventoryIntegration
             : null;
     }
 
-    private void OnRenderingActiveMenu(object? sender, RenderingActiveMenuEventArgs e)
+    private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
         GameMenu? menu = GetInventoryMenu();
         if (menu is null)
