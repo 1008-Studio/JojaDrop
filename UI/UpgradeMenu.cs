@@ -489,9 +489,10 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview,
             sourceQuantity, outputQuantity, rouletteResult);
-        monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; "
-            + $"target={targetPreview.QualifiedItemId}; chance={currentChance:0.####}; "
-            + $"result={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
+        monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; q={sourceQuantity}; sourceValue={sourceValue.Value}; "
+            + $"sourceTotal={(long)sourceQuantity * sourceValue.Value}; target={targetPreview.QualifiedItemId}; r={outputQuantity}; "
+            + $"targetValue={targetValue.Value}; targetTotal={(long)outputQuantity * targetValue.Value}; chance={currentChance:0.####}; "
+            + $"roll={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
 
         if (!transaction.IsSuccess)
         {
