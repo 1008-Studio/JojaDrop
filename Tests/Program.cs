@@ -2,6 +2,7 @@ using JojaDrop.Services;
 
 var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
+var inventoryPlanner = new InventoryBatchPlanner();
 
 foreach (var (source, target, expected) in new[]
 {
@@ -74,6 +75,29 @@ foreach (UpgradeTransactionStatus status in Enum.GetValues<UpgradeTransactionSta
         throw new InvalidOperationException($"Incorrect transaction result for {status}.");
 }
 
+InventoryBatchSlot[] singleStack = [new(5, 0, 10)];
+ExpectInventoryPlan(inventoryPlanner.Plan(singleStack, 5, 4),
+    [new(0, 5)], [new(0, 4)]);
+if (!singleStack.SequenceEqual([new InventoryBatchSlot(5, 0, 10)]))
+    throw new InvalidOperationException("Inventory planning must not mutate its input slots.");
+
+ExpectInventoryPlan(inventoryPlanner.Plan([new(2, 0, 10), new(3, 0, 10)], 4, 4),
+    [new(0, 2), new(1, 2)], [new(0, 4)]);
+
+ExpectInventoryStatus(inventoryPlanner.Plan([new(2, 0, 10), new(3, 0, 10)], 6, 1),
+    InventoryBatchPlanStatus.InsufficientSource);
+
+ExpectInventoryPlan(inventoryPlanner.Plan([new(0, 3, 0), new(2, 0, 5)], 2, 5),
+    [new(1, 2)], [new(0, 3), new(1, 2)]);
+
+ExpectInventoryStatus(inventoryPlanner.Plan([new(1, 0, 5)], 1, 6),
+    InventoryBatchPlanStatus.InsufficientOutputCapacity);
+ExpectInventoryStatus(inventoryPlanner.Plan([new(2, 0, 10)], 0, 1), InventoryBatchPlanStatus.InvalidQuantity);
+ExpectInventoryStatus(inventoryPlanner.Plan([new(2, 0, 10)], 1, 0), InventoryBatchPlanStatus.InvalidQuantity);
+
+ExpectInventoryPlan(inventoryPlanner.Plan([new(2, 0, 10)], 2, 1), [new(0, 2)], [new(0, 1)]);
+ExpectInventoryStatus(inventoryPlanner.Plan([new(1, 0, 10)], 2, 1), InventoryBatchPlanStatus.InsufficientSource);
+
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
     try
@@ -113,6 +137,22 @@ void ExpectBatchException<TException>(int sourceCount, int targetCount, string p
     }
 
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for counts {sourceCount}, {targetCount}.");
+}
+
+void ExpectInventoryPlan(InventoryBatchPlanResult result, InventoryBatchRemoval[] removals, InventoryBatchInsertion[] insertions)
+{
+    if (!result.IsSuccess || result.Plan is null
+        || !result.Plan.SourceRemovals.SequenceEqual(removals)
+        || !result.Plan.OutputInsertions.SequenceEqual(insertions))
+    {
+        throw new InvalidOperationException($"Unexpected inventory plan: {result.Status}.");
+    }
+}
+
+void ExpectInventoryStatus(InventoryBatchPlanResult result, InventoryBatchPlanStatus expected)
+{
+    if (result.Status != expected || result.Plan is not null)
+        throw new InvalidOperationException($"Expected inventory plan status {expected}, got {result.Status}.");
 }
 
 sealed class FixedRandom(double value) : Random
