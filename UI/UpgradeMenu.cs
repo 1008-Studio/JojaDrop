@@ -19,6 +19,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int ButtonWidth = 208;
     private const int ButtonHeight = 64;
     private const int ButtonFooterGap = 64;
+    private const int QuantityButtonSize = 36;
     private const int StatusBottomOffset = 40;
     private const int ItemNameGap = 12;
     private const int ItemValueGap = 40;
@@ -28,6 +29,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int TargetId = 101;
     private const int UpgradeId = 102;
     private const int CloseId = 103;
+    private const int SourceDecreaseId = 104;
+    private const int SourceIncreaseId = 105;
+    private const int OutputDecreaseId = 106;
+    private const int OutputIncreaseId = 107;
     private readonly ItemValueService itemValues;
     private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
@@ -41,6 +46,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
+    private ClickableComponent sourceDecreaseButton = null!;
+    private ClickableComponent sourceIncreaseButton = null!;
+    private ClickableComponent outputDecreaseButton = null!;
+    private ClickableComponent outputIncreaseButton = null!;
     private Item? sourceItem;
     private TargetItemOption? targetOption;
     private int sourceQuantity = 1;
@@ -108,11 +117,28 @@ internal sealed class UpgradeMenu : IClickableMenu
         {
             myID = UpgradeId, upNeighborID = SourceId, rightNeighborID = CloseId
         };
+        int quantitySize = Scale(QuantityButtonSize);
+        int quantityTop = slotTop + slotSize + Scale(72);
+        sourceDecreaseButton = CreateQuantityButton(sourceSlot.bounds.Center.X - Scale(52), quantityTop, quantitySize, SourceDecreaseId);
+        sourceIncreaseButton = CreateQuantityButton(sourceSlot.bounds.Center.X + Scale(16), quantityTop, quantitySize, SourceIncreaseId);
+        outputDecreaseButton = CreateQuantityButton(targetSlot.bounds.Center.X - Scale(52), quantityTop, quantitySize, OutputDecreaseId);
+        outputIncreaseButton = CreateQuantityButton(targetSlot.bounds.Center.X + Scale(16), quantityTop, quantitySize, OutputIncreaseId);
+        sourceDecreaseButton.rightNeighborID = SourceIncreaseId;
+        sourceIncreaseButton.leftNeighborID = SourceDecreaseId;
+        sourceIncreaseButton.rightNeighborID = OutputDecreaseId;
+        outputDecreaseButton.leftNeighborID = SourceIncreaseId;
+        outputDecreaseButton.rightNeighborID = OutputIncreaseId;
+        outputIncreaseButton.leftNeighborID = OutputDecreaseId;
+        sourceDecreaseButton.upNeighborID = sourceIncreaseButton.upNeighborID = SourceId;
+        outputDecreaseButton.upNeighborID = outputIncreaseButton.upNeighborID = TargetId;
+        sourceDecreaseButton.downNeighborID = sourceIncreaseButton.downNeighborID = UpgradeId;
+        outputDecreaseButton.downNeighborID = outputIncreaseButton.downNeighborID = UpgradeId;
         initializeUpperRightCloseButton();
         upperRightCloseButton.myID = CloseId;
         upperRightCloseButton.leftNeighborID = TargetId;
         upperRightCloseButton.downNeighborID = TargetId;
-        allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, upgradeButton, upperRightCloseButton };
+        allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, sourceDecreaseButton, sourceIncreaseButton,
+            outputDecreaseButton, outputIncreaseButton, upgradeButton, upperRightCloseButton };
 
         if (Game1.options.SnappyMenus)
         {
@@ -202,6 +228,26 @@ internal sealed class UpgradeMenu : IClickableMenu
             });
             return;
         }
+        if (sourceDecreaseButton.containsPoint(x, y))
+        {
+            ChangeSourceQuantity(-1);
+            return;
+        }
+        if (sourceIncreaseButton.containsPoint(x, y))
+        {
+            ChangeSourceQuantity(1);
+            return;
+        }
+        if (outputDecreaseButton.containsPoint(x, y))
+        {
+            ChangeOutputQuantity(-1);
+            return;
+        }
+        if (outputIncreaseButton.containsPoint(x, y))
+        {
+            ChangeOutputQuantity(1);
+            return;
+        }
         if (targetSlot.containsPoint(x, y) && sourceItem is not null)
         {
             if (playSound)
@@ -257,6 +303,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         base.performHoverAction(x, y);
         hoverText = sourceSlot.containsPoint(x, y) ? "Choose an item from your inventory.\nSelection leaves it in your backpack."
+            : sourceDecreaseButton.containsPoint(x, y) ? "Decrease source quantity."
+            : sourceIncreaseButton.containsPoint(x, y) ? "Increase source quantity."
+            : outputDecreaseButton.containsPoint(x, y) ? "Decrease output quantity."
+            : outputIncreaseButton.containsPoint(x, y) ? "Increase output quantity."
             : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
             : targetSlot.containsPoint(x, y) ? "Choose a target item."
             : upgradeButton.containsPoint(x, y) && isAnimatingRoulette ? "Upgrade in progress..."
@@ -271,6 +321,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
         DrawItemSlot(b, sourceSlot, "Your Item", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem));
         DrawItemSlot(b, targetSlot, "Target Item", targetOption?.PreviewItem, targetOption?.Value, sourceItem is not null);
+        DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
+        DrawQuantityControl(b, outputDecreaseButton, outputIncreaseButton, outputQuantity, CanDecreaseOutput, CanIncreaseOutput);
 
         // Chance and multiplier above UPGRADE button
         int buttonTop = upgradeButton.bounds.Y;
@@ -303,6 +355,10 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     private bool HasUpgradeSelection => sourceItem is not null && targetOption is not null;
     private bool CanUpgrade => HasUpgradeSelection && availableQuantity >= sourceQuantity && !hasRolledCurrentSelection;
+    private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
+    private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
+    private bool CanDecreaseOutput => sourceItem is not null && outputQuantity > 1;
+    private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < sourceQuantity;
 
     private string GetChanceText()
     {
@@ -453,6 +509,28 @@ internal sealed class UpgradeMenu : IClickableMenu
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
         if (availableQuantity > 0)
             sourceQuantity = Math.Clamp(sourceQuantity, 1, availableQuantity);
+        outputQuantity = Math.Clamp(outputQuantity, 1, sourceQuantity);
+    }
+
+    private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
+
+    private void ChangeSourceQuantity(int delta)
+    {
+        RefreshQuantityState();
+        sourceQuantity = Math.Clamp(sourceQuantity + delta, 1, Math.Max(1, availableQuantity));
+        outputQuantity = Math.Min(outputQuantity, sourceQuantity);
+    }
+
+    private void ChangeOutputQuantity(int delta) => outputQuantity = Math.Clamp(outputQuantity + delta, 1, sourceQuantity);
+
+    private void DrawQuantityControl(SpriteBatch b, ClickableComponent decrease, ClickableComponent increase, int quantity, bool canDecrease, bool canIncrease)
+    {
+        int mouseX = Game1.getMouseX(true);
+        int mouseY = Game1.getMouseY(true);
+        MenuDrawing.TextButton(b, decrease, "-", decrease.containsPoint(mouseX, mouseY), canDecrease, layoutScale);
+        MenuDrawing.CenteredText(b, quantity.ToString(), (decrease.bounds.Right + increase.bounds.Left) / 2,
+            decrease.bounds.Center.Y - (int)(Game1.smallFont.MeasureString(quantity.ToString()).Y * layoutScale) / 2, scale: layoutScale);
+        MenuDrawing.TextButton(b, increase, "+", increase.containsPoint(mouseX, mouseY), canIncrease, layoutScale);
     }
 
     private static bool IsTargetValid(Item? targetPreview)
