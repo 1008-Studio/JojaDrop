@@ -359,7 +359,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
     private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
     private bool CanDecreaseOutput => sourceItem is not null && outputQuantity > 1;
-    private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < sourceQuantity;
+    private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < int.MaxValue;
 
     private string GetChanceText()
     {
@@ -479,7 +479,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         pendingSourceQuantity = 0;
         pendingOutputQuantity = 0;
 
-        if (sourceQuantity < 1 || outputQuantity < 1 || outputQuantity > sourceQuantity)
+        if (sourceQuantity < 1 || outputQuantity < 1)
         {
             statusMessage = "Upgrade unavailable: invalid batch quantity.";
             hasRolledCurrentSelection = false;
@@ -537,7 +537,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
         if (availableQuantity > 0)
             sourceQuantity = Math.Clamp(sourceQuantity, 1, availableQuantity);
-        outputQuantity = Math.Clamp(outputQuantity, 1, sourceQuantity);
+        outputQuantity = Math.Max(1, outputQuantity);
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
@@ -546,10 +546,15 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         RefreshQuantityState();
         sourceQuantity = Math.Clamp(sourceQuantity + delta, 1, Math.Max(1, availableQuantity));
-        outputQuantity = Math.Min(outputQuantity, sourceQuantity);
     }
 
-    private void ChangeOutputQuantity(int delta) => outputQuantity = Math.Clamp(outputQuantity + delta, 1, sourceQuantity);
+    private void ChangeOutputQuantity(int delta)
+    {
+        if (delta < 0)
+            outputQuantity = Math.Max(1, outputQuantity - 1);
+        else if (delta > 0 && outputQuantity < int.MaxValue)
+            outputQuantity++;
+    }
 
     private void DrawQuantityControl(SpriteBatch b, ClickableComponent decrease, ClickableComponent increase, int quantity, bool canDecrease, bool canIncrease)
     {

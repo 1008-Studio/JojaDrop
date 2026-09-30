@@ -47,6 +47,15 @@ if (calculator.IsBatchTargetValueValid(3, 1, 2, 4)
     throw new InvalidOperationException("Batch target validation must compare total values.");
 }
 
+if (Math.Abs(calculator.CalculateChance(23, 100, 2, 4) - 0.115d) > 1e-12
+    || calculator.IsBatchTargetValueValid(23, 1, 2, 4)
+    || !calculator.IsBatchTargetValueValid(23, 12, 2, 4)
+    || !calculator.IsBatchTargetValueValid(23, 100, 2, 4)
+    || !calculator.IsBatchTargetValueValid(int.MaxValue, int.MaxValue, int.MaxValue - 1, int.MaxValue))
+{
+    throw new InvalidOperationException("Target batches must be independent of source quantity and use safe totals.");
+}
+
 foreach (int source in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(source, 1000, "sourceValue");
 
@@ -147,6 +156,20 @@ if (transactionService.Apply(fullPlayer, fullSource, new Item("target", 1), 1, 1
 {
     throw new InvalidOperationException("A full inventory must reject the batch before source removal.");
 }
+
+Item[] multiStackSources =
+[
+    new Item("source", 999) { Value = 2 },
+    new Item("source", 999) { Value = 2 },
+    new Item("source", 999) { Value = 2 },
+    new Item("source", 999) { Value = 2 },
+    new Item("source", 4) { Value = 2 }
+];
+var multiStackPlayer = new Farmer(5, multiStackSources);
+UpgradeTransactionResult multiStackTransaction = transactionService.Apply(multiStackPlayer, multiStackSources[0],
+    new Item("target", 1) { Value = 4 }, 4000, 2000, success: true);
+if (!multiStackTransaction.IsSuccess || !multiStackPlayer.Items.Select(item => item?.Stack).SequenceEqual([999, 999, 2, null, null]))
+    throw new InvalidOperationException("Large target batches must be distributed across multiple stacks.");
 
 Item invalidTargetSource = new("source", 2);
 var invalidTargetPlayer = new Farmer(1, invalidTargetSource);

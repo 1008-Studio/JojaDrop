@@ -4,8 +4,8 @@ public sealed class UpgradeCalculator
 {
     /// <summary>
     /// Gets the probability for one batch roll: q source items of value S are spent; on success, r target
-    /// items of value T are received, while failure receives none. q and r must be positive; callers should
-    /// normally constrain r to q. One item of each reproduces the legacy source-value/target-value chance.
+    /// items of value T are received, while failure receives none. q and r must be positive and independent.
+    /// One item of each reproduces the legacy source-value/target-value chance.
     /// </summary>
     public double CalculateChance(int sourceCount, int targetCount, int sourceValue, int targetValue)
     {
