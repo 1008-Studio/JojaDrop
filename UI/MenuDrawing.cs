@@ -12,32 +12,28 @@ internal static class MenuDrawing
     private const float SlotLayerDepth = 0.9f;
     private const float HoverLayerDepth = 0.95f;
     private const int InventorySlotIndex = 10;
-    private const int PanelBorderThickness = 64;
-    private const int BackgroundBandHeight = 4;
-    private static readonly Color BackgroundTop = new(246, 224, 177);
-    private static readonly Color BackgroundMiddle = new(240, 215, 165);
-    private static readonly Color BackgroundBottom = new(234, 206, 153);
+    private const int PanelContentInset = 20;
+    private const int GradientStepHeight = 4;
+    private static readonly Color BackgroundTopTint = new(255, 244, 215, 18);
+    private static readonly Color BackgroundBottomTint = new(235, 190, 135, 18);
 
     public static void Panel(SpriteBatch b, IClickableMenu menu)
     {
         b.Draw(Game1.fadeToBlackRect, new Rectangle(0, 0, Game1.uiViewport.Width, Game1.uiViewport.Height), Color.Black * 0.5f);
         IClickableMenu.drawTextureBox(b, menu.xPositionOnScreen, menu.yPositionOnScreen, menu.width, menu.height, Color.White);
 
-        Rectangle background = new(menu.xPositionOnScreen + PanelBorderThickness,
-            menu.yPositionOnScreen + PanelBorderThickness,
-            menu.width - PanelBorderThickness * 2,
-            menu.height - PanelBorderThickness * 2);
-        if (background.Width <= 0 || background.Height <= 0)
+        Rectangle content = new(menu.xPositionOnScreen + PanelContentInset,
+            menu.yPositionOnScreen + PanelContentInset,
+            menu.width - PanelContentInset * 2,
+            menu.height - PanelContentInset * 2);
+        if (content.Width <= 0 || content.Height <= 0)
             return;
 
-        for (int y = 0; y < background.Height; y += BackgroundBandHeight)
+        for (int y = 0; y < content.Height; y += GradientStepHeight)
         {
-            int bandHeight = Math.Min(BackgroundBandHeight, background.Height - y);
-            float position = (y + bandHeight / 2f) / background.Height;
-            Color shade = position < 0.5f
-                ? Color.Lerp(BackgroundTop, BackgroundMiddle, position * 2f)
-                : Color.Lerp(BackgroundMiddle, BackgroundBottom, (position - 0.5f) * 2f);
-            b.Draw(Game1.fadeToBlackRect, new Rectangle(background.X, background.Y + y, background.Width, bandHeight), shade);
+            int height = Math.Min(GradientStepHeight, content.Height - y);
+            Color tint = Color.Lerp(BackgroundTopTint, BackgroundBottomTint, (y + height / 2f) / content.Height);
+            b.Draw(Game1.fadeToBlackRect, new Rectangle(content.X, content.Y + y, content.Width, height), tint);
         }
     }
 
