@@ -6,18 +6,26 @@ using StardewValley.Menus;
 namespace JojaDrop.UI;
 
 /// <summary>
-/// Draws a two-sector wheel (green = success share of chance, red = fail share) with a needle.
-/// The wheel itself never rotates; only the needle spins.
+/// Draws a two-sector wheel (green = success share of chance, red = fail share) with pixel-art overlays.
+/// The frame, sectors, and center stay fixed while the arrow spins above them.
 /// </summary>
 internal static class RouletteWheel
 {
-    private const float WheelRadius = 60f;
-    private const float ArrowLength = 65f;
-    private const float ArrowWidth = 3f;
-    private const float HubRadius = 14f;
+    private const float WheelRadius = 62f;
+    private const float FrameInnerRadius = WheelRadius - 12f;
+    private const float VisualSectorRadius = FrameInnerRadius + 2f;
+    private const int AssetSize = 32;
+    private const int WheelFrameScale = 5;
+    private const int WheelCenterScale = 2;
+    private const float WheelArrowLengthRatio = 1.4f;
+    private const float WheelArrowOriginX = 152f;
+    private const float WheelArrowOriginY = 0.5f;
+    private const float WheelArrowSourceLength = 1090f;
+    private const float WheelArrowRotationOffset = 0f;
+    private const float FrameLayerDepth = 0.86f;
     private const float WheelLayerDepth = 0.85f;
-    private const float PointerLayerDepth = 0.87f;
-    private const float HubLayerDepth = 0.88f;
+    private const float CenterLayerDepth = 0.88f;
+    private const float ArrowLayerDepth = 0.87f;
     public const float SpinDuration = 3.5f;
     private const float DecelerationPower = 2.5f;
 
@@ -53,6 +61,9 @@ internal static class RouletteWheel
 
     public static void Draw(
         SpriteBatch b,
+        Texture2D frame,
+        Texture2D wheelCenter,
+        Texture2D arrow,
         Vector2 center,
         double chance,
         float progress,
@@ -60,21 +71,26 @@ internal static class RouletteWheel
         float targetAngle,
         float scale = 1f)
     {
-        float radius = WheelRadius * scale;
-        float arrowLen = ArrowLength * scale;
-        float arrowW = ArrowWidth * scale;
-        float hubRad = HubRadius * scale;
+        float radius = VisualSectorRadius * scale;
 
         Texture2D pixel = GetPixel(b.GraphicsDevice);
 
-        // The needle angle is measured from 12 o'clock; DrawPointer expects a standard
-        // screen angle (0 = 3 o'clock), so shift by -90°.
-        float pointerAngle = CalculatePointerAngle(progress, isSpinning, targetAngle) - MathF.PI / 2f;
-
         DrawWheel(b, center, radius, chance, pixel);
-        DrawPointer(b, center, arrowLen, arrowW, pointerAngle, pixel);
-        DrawHub(b, center, hubRad, pixel);
+        b.Draw(frame, CenteredBounds(center, GetAssetSize(WheelFrameScale, scale)), null, Color.White,
+            0f, Vector2.Zero, SpriteEffects.None, FrameLayerDepth);
+        float arrowAngle = CalculatePointerAngle(progress, isSpinning, targetAngle) - MathF.PI / 2f + WheelArrowRotationOffset;
+        Vector2 arrowOrigin = new(WheelArrowOriginX, arrow.Height * WheelArrowOriginY);
+        float arrowScale = FrameInnerRadius * scale * WheelArrowLengthRatio / WheelArrowSourceLength;
+        b.Draw(arrow, center, null, Color.White, arrowAngle, arrowOrigin, arrowScale,
+            SpriteEffects.None, ArrowLayerDepth);
+        b.Draw(wheelCenter, CenteredBounds(center, GetAssetSize(WheelCenterScale, scale)), null, Color.White,
+            0f, Vector2.Zero, SpriteEffects.None, CenterLayerDepth);
     }
+
+    private static int GetAssetSize(int assetScale, float uiScale) => Math.Max(1, (int)MathF.Round(AssetSize * assetScale * uiScale));
+
+    private static Rectangle CenteredBounds(Vector2 center, int size) => new(
+        (int)MathF.Round(center.X - size / 2f), (int)MathF.Round(center.Y - size / 2f), size, size);
 
     /// <summary>Returns the needle direction in radians (0 = up / 12 o'clock).</summary>
     private static float CalculatePointerAngle(float progress, bool isSpinning, float targetAngle)
@@ -109,8 +125,6 @@ internal static class RouletteWheel
         if (greenAngle < MathF.PI * 2f - 0.0005f)
             DrawLine(b, center, PointAt(center, startAngle, radius), border, 2.5f, pixel, WheelLayerDepth + 0.001f);
 
-        // Outer ring.
-        DrawRing(b, center, radius, 3f, border, pixel, WheelLayerDepth + 0.002f);
     }
 
     /// <summary>
@@ -150,54 +164,6 @@ internal static class RouletteWheel
             float angle = step * (i + 0.5f);
             DrawLine(b, center, PointAt(center, angle, radius), color, thickness, pixel, depth);
         }
-    }
-
-    private static void DrawRing(SpriteBatch b, Vector2 center, float radius, float thickness, Color color, Texture2D pixel, float depth)
-    {
-        int count = 96;
-        float step = MathF.PI * 2f / count;
-        Vector2 previous = PointAt(center, 0f, radius);
-        for (int i = 1; i <= count; i++)
-        {
-            Vector2 current = PointAt(center, step * i, radius);
-            DrawLine(b, previous, current, color, thickness, pixel, depth);
-            previous = current;
-        }
-    }
-
-    private static void DrawPointer(SpriteBatch b, Vector2 center, float length, float width, float angle, Texture2D pixel)
-    {
-        Color needle = new Color(235, 225, 185);
-        Color shade = new Color(30, 22, 14);
-
-        Vector2 dir = PointAt(Vector2.Zero, angle, 1f);          // unit vector
-        Vector2 perp = new Vector2(-dir.Y, dir.X);
-        float shaftLength = length * 0.86f;
-        Vector2 shaftEnd = center + dir * shaftLength;
-        Vector2 tip = center + dir * length;
-
-        Vector2 offset = perp * (width * 0.5f);
-
-        // Shadow (drawn first, sits under the needle).
-        Vector2 shadow = new Vector2(1.5f, 1.5f);
-        DrawLine(b, center + shadow, shaftEnd + shadow, shade * 0.45f, width, pixel, PointerLayerDepth - 0.001f);
-        FillTriangle(b, tip + shadow, shaftEnd + offset * 2.2f + shadow, shaftEnd - offset * 2.2f + shadow,
-            shade * 0.45f, pixel, PointerLayerDepth - 0.001f);
-
-        // Shaft: thin rectangle from the centre to 86% of the needle.
-        DrawLine(b, center, shaftEnd, needle, width, pixel, PointerLayerDepth);
-        // Tip: small triangle ending in a point.
-        FillTriangle(b, tip, shaftEnd + offset * 2.2f, shaftEnd - offset * 2.2f, needle, pixel, PointerLayerDepth);
-    }
-
-    private static void DrawHub(SpriteBatch b, Vector2 center, float radius, Texture2D pixel)
-    {
-        Color hub = new Color(86, 64, 42);
-        Color hubEdge = new Color(38, 28, 18);
-
-        DrawDisc(b, center, radius, hub, pixel, HubLayerDepth);
-        DrawRing(b, center, radius, 2.5f, hubEdge, pixel, HubLayerDepth + 0.001f);
-        DrawRing(b, center, radius * 0.4f, 2f, hubEdge, pixel, HubLayerDepth + 0.002f);
     }
 
     private static Vector2 PointAt(Vector2 origin, float angle, float distance)

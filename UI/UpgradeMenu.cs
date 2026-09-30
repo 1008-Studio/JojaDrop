@@ -34,6 +34,9 @@ internal sealed class UpgradeMenu : IClickableMenu
     private readonly UpgradeTransactionService transactionService;
     private readonly TargetItemProvider targetItemProvider;
     private readonly IMonitor monitor;
+    private readonly Texture2D wheelArrow;
+    private readonly Texture2D wheelCenter;
+    private readonly Texture2D wheelFrame;
     private ClickableComponent sourceSlot = null!;
     private ClickableComponent targetSlot = null!;
     private ClickableComponent upgradeButton = null!;
@@ -55,7 +58,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     private TargetItemOption? pendingTarget;
 
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
-        UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor)
+        UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor,
+        Texture2D wheelArrow, Texture2D wheelCenter, Texture2D wheelFrame)
     {
         this.itemValues = itemValues;
         this.upgradeCalculator = upgradeCalculator;
@@ -63,6 +67,9 @@ internal sealed class UpgradeMenu : IClickableMenu
         this.transactionService = transactionService;
         this.targetItemProvider = targetItemProvider;
         this.monitor = monitor;
+        this.wheelArrow = wheelArrow;
+        this.wheelCenter = wheelCenter;
+        this.wheelFrame = wheelFrame;
         UpdateLayout();
     }
 
@@ -264,8 +271,9 @@ internal sealed class UpgradeMenu : IClickableMenu
         double wheelChance = currentChance;
         if (HasUpgradeSelection && (isAnimatingRoulette || TryGetUpgradePreview(out wheelChance, out _)))
         {
-            Vector2 wheelCenter = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
-            RouletteWheel.Draw(b, wheelCenter, wheelChance, rouletteAnimationTimer, isAnimatingRoulette, rouletteTargetAngle, layoutScale);
+            Vector2 wheelPosition = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
+            RouletteWheel.Draw(b, wheelFrame, wheelCenter, wheelArrow, wheelPosition, wheelChance, rouletteAnimationTimer,
+                isAnimatingRoulette, rouletteTargetAngle, layoutScale);
         }
 
         base.draw(b);
