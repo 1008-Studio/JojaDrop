@@ -36,7 +36,7 @@ internal sealed class InventoryIntegration
 
     public void RegisterEvents()
     {
-        helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
+        helper.Events.Display.RenderingActiveMenu += OnRenderingActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
 
@@ -51,7 +51,7 @@ internal sealed class InventoryIntegration
             : null;
     }
 
-    private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
+    private void OnRenderingActiveMenu(object? sender, RenderingActiveMenuEventArgs e)
     {
         GameMenu? menu = GetInventoryMenu();
         if (menu is null)
@@ -60,7 +60,6 @@ internal sealed class InventoryIntegration
         UpgradeButton button = buttons.Value;
         button.UpdateLayout(menu);
         button.Draw(e.SpriteBatch, Game1.getMouseX(true), Game1.getMouseY(true), menu.readyToClose());
-        menu.drawMouse(e.SpriteBatch);
     }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
