@@ -123,8 +123,7 @@ internal sealed class UpgradeMenu : IClickableMenu
             UpdateLayout();
         if (isAnimatingRoulette)
         {
-            // The transaction already ran at click time and may have (in)validly removed our
-            // source item — that is expected. Never cancel a spin mid-flight; only advance it.
+            // The transaction is applied after the spin finishes. Never cancel a spin mid-flight.
             rouletteAnimationTimer += (float)time.ElapsedGameTime.TotalSeconds;
             if (rouletteAnimationTimer >= RouletteWheel.SpinDuration)
             {
@@ -150,14 +149,13 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        if (isAnimatingRoulette)
+            return;
         if (upperRightCloseButton.containsPoint(x, y))
         {
             exitThisMenu();
             return;
         }
-        // The spin is one-shot: do not let slot re-selection wipe the pending result.
-        if (isAnimatingRoulette)
-            return;
         if (sourceSlot.containsPoint(x, y))
         {
             if (playSound)
@@ -209,6 +207,8 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     public override void receiveKeyPress(Keys key)
     {
+        if (isAnimatingRoulette)
+            return;
         if (key == Keys.Escape)
             exitThisMenu();
         else
@@ -217,11 +217,15 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     public override void receiveGamePadButton(Buttons button)
     {
+        if (isAnimatingRoulette)
+            return;
         if (button == Buttons.B)
             exitThisMenu();
         else
             base.receiveGamePadButton(button);
     }
+
+    public override bool readyToClose() => !isAnimatingRoulette && base.readyToClose();
 
     public override void performHoverAction(int x, int y)
     {
