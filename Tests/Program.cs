@@ -24,6 +24,7 @@ foreach (var (source, target, expected) in new[]
 foreach (var (sourceCount, targetCount, sourceValue, targetValue, expected) in new[]
 {
     (1, 1, 1000, 2000, 0.5),
+    (2, 2, 1000, 2000, 0.5),
     (3, 2, 1000, 2000, 0.75),
     (4, 1, 1000, 2000, 1d)
 })
@@ -107,6 +108,8 @@ var legacyPlayer = new Farmer(1, legacySource);
 UpgradeTransactionResult legacyTransaction = transactionService.Apply(legacyPlayer, legacySource, new Item("target", 1), success: true);
 if (!legacyTransaction.IsSuccess || legacyPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 1 })
     throw new InvalidOperationException("The legacy one-to-one transaction must consume the source and create one target.");
+if (transactionService.Apply(legacyPlayer, legacySource, new Item("target", 1), success: true).Status != UpgradeTransactionStatus.SourceMissing)
+    throw new InvalidOperationException("A completed transaction must not commit twice.");
 
 Item sourceA = new("source", 2);
 Item sourceB = new("source", 3);
