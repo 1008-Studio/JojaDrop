@@ -14,8 +14,8 @@ internal static class MenuDrawing
     private const int InventorySlotIndex = 10;
     private const int PanelContentInset = 20;
     private const int GradientStepHeight = 4;
-    private static readonly Color BackgroundTopTint = new(255, 244, 215, 18);
-    private static readonly Color BackgroundBottomTint = new(235, 190, 135, 18);
+    private static readonly Color BackgroundTopTint = new(255, 203, 123, 240);
+    private static readonly Color BackgroundBottomTint = new(232, 165, 100, 240);
 
     public static void Panel(SpriteBatch b, IClickableMenu menu)
     {
