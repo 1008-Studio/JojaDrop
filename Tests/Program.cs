@@ -14,8 +14,27 @@ foreach (var (source, target, expected) in new[]
 })
 {
     double actual = calculator.CalculateChance(source, target);
-    if (Math.Abs(actual - expected) > 1e-12 || actual <= 0 || actual > 1)
+    double batchActual = calculator.CalculateChance(1, 1, source, target);
+    if (Math.Abs(actual - expected) > 1e-12 || Math.Abs(batchActual - actual) > 1e-12 || actual <= 0 || actual > 1)
         throw new InvalidOperationException($"Incorrect probability for {source} -> {target}: {actual}.");
+}
+
+foreach (var (sourceCount, targetCount, sourceValue, targetValue, expected) in new[]
+{
+    (1, 1, 1000, 2000, 0.5),
+    (3, 2, 1000, 2000, 0.75),
+    (4, 1, 1000, 2000, 1d)
+})
+{
+    double actual = calculator.CalculateChance(sourceCount, targetCount, sourceValue, targetValue);
+    if (Math.Abs(actual - expected) > 1e-12 || actual < 0 || actual > 1)
+        throw new InvalidOperationException($"Incorrect batch probability for {sourceCount}x{sourceValue} -> {targetCount}x{targetValue}: {actual}.");
+}
+
+foreach (int count in new[] { 0, -1, int.MinValue })
+{
+    ExpectBatchException<ArgumentOutOfRangeException>(count, 1, "sourceCount");
+    ExpectBatchException<ArgumentOutOfRangeException>(1, count, "targetCount");
 }
 
 foreach (int source in new[] { 0, -1, int.MinValue })
@@ -80,6 +99,20 @@ void ExpectRollException(double chance)
     }
 
     throw new InvalidOperationException($"Expected ArgumentOutOfRangeException for chance {chance}.");
+}
+
+void ExpectBatchException<TException>(int sourceCount, int targetCount, string parameter) where TException : ArgumentException
+{
+    try
+    {
+        calculator.CalculateChance(sourceCount, targetCount, 1000, 2000);
+    }
+    catch (TException exception) when (exception.ParamName == parameter)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"Expected {typeof(TException).Name} for counts {sourceCount}, {targetCount}.");
 }
 
 sealed class FixedRandom(double value) : Random
