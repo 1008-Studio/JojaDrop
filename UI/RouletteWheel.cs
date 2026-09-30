@@ -33,13 +33,31 @@ internal static class RouletteWheel
         return _pixel;
     }
 
+    /// <summary>
+    /// Picks a random stopping point inside the winning (green) or losing (red) sector.
+    /// Returns an angle measured from 12 o'clock, clockwise — the same frame the wheel uses.
+    /// </summary>
+    public static float CalculateTargetAngle(double chance, bool success, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        float greenAngle = Math.Clamp((float)chance * MathF.PI * 2f, 0f, MathF.PI * 2f);
+        float redAngle = MathF.PI * 2f - greenAngle;
+
+        // Uniform position inside the sector, kept 5% away from both sector edges.
+        float t = 0.05f + (float)rng.NextDouble() * 0.9f;
+
+        if (success)
+            return greenAngle <= 0f ? 0f : greenAngle * t;
+        return redAngle <= 0f ? greenAngle : greenAngle + redAngle * t;
+    }
+
     public static void Draw(
         SpriteBatch b,
         Vector2 center,
         double chance,
         float progress,
         bool isSpinning,
-        bool success,
+        float targetAngle,
         float scale = 1f)
     {
         float radius = WheelRadius * scale;
@@ -49,9 +67,9 @@ internal static class RouletteWheel
 
         Texture2D pixel = GetPixel(b.GraphicsDevice);
 
-        // CalculatePointerAngle is measured from 12 o'clock; DrawPointer expects a standard
+        // The needle angle is measured from 12 o'clock; DrawPointer expects a standard
         // screen angle (0 = 3 o'clock), so shift by -90°.
-        float pointerAngle = CalculatePointerAngle(chance, progress, isSpinning, success) - MathF.PI / 2f;
+        float pointerAngle = CalculatePointerAngle(progress, isSpinning, targetAngle) - MathF.PI / 2f;
 
         DrawWheel(b, center, radius, chance, pixel);
         DrawPointer(b, center, arrowLen, arrowW, pointerAngle, pixel);
@@ -59,12 +77,8 @@ internal static class RouletteWheel
     }
 
     /// <summary>Returns the needle direction in radians (0 = up / 12 o'clock).</summary>
-    private static float CalculatePointerAngle(double chance, float progress, bool isSpinning, bool success)
+    private static float CalculatePointerAngle(float progress, bool isSpinning, float targetAngle)
     {
-        float greenAngle = (float)(chance * MathF.PI * 2);
-        // Center of the green sector, measured from top, clockwise.
-        float targetAngle = success ? greenAngle / 2f : greenAngle + (MathF.PI * 2f - greenAngle) / 2f;
-
         if (!isSpinning)
             return 0f; // neutral: pointing up
 

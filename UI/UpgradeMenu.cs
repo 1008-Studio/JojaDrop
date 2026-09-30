@@ -50,7 +50,9 @@ internal sealed class UpgradeMenu : IClickableMenu
     private float rouletteAnimationTimer;
     private double currentChance;
     private bool rouletteResult;
-    private UpgradeTransactionResult? pendingTransaction;
+    private float rouletteTargetAngle;
+    private Item? pendingSource;
+    private TargetItemOption? pendingTarget;
 
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor)
@@ -138,7 +140,8 @@ internal sealed class UpgradeMenu : IClickableMenu
             targetOption = null;
             hasRolledCurrentSelection = false;
             rouletteAnimationTimer = 0f;
-            pendingTransaction = null;
+            pendingSource = null;
+            pendingTarget = null;
             rouletteResult = false;
         }
     }
@@ -168,7 +171,8 @@ internal sealed class UpgradeMenu : IClickableMenu
                     hasRolledCurrentSelection = false;
                     isAnimatingRoulette = false;
                     rouletteAnimationTimer = 0f;
-                    pendingTransaction = null;
+                    pendingSource = null;
+                    pendingTarget = null;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -189,7 +193,8 @@ internal sealed class UpgradeMenu : IClickableMenu
                     hasRolledCurrentSelection = false;
                     isAnimatingRoulette = false;
                     rouletteAnimationTimer = 0f;
-                    pendingTransaction = null;
+                    pendingSource = null;
+                    pendingTarget = null;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -255,7 +260,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (HasUpgradeSelection && TryGetUpgradePreview(out double wheelChance, out _))
         {
             Vector2 wheelCenter = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
-            RouletteWheel.Draw(b, wheelCenter, wheelChance, rouletteAnimationTimer, isAnimatingRoulette, rouletteResult, layoutScale);
+            RouletteWheel.Draw(b, wheelCenter, wheelChance, rouletteAnimationTimer, isAnimatingRoulette, rouletteTargetAngle, layoutScale);
         }
 
         base.draw(b);
@@ -334,14 +339,14 @@ internal sealed class UpgradeMenu : IClickableMenu
 
             double chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
-            UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, success);
-            monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; sourceValue={sourceValue.Value}; "
-                + $"target={targetPreview.QualifiedItemId}; targetValue={targetValue.Value}; chance={chance:0.####}; "
-                + $"result={(success ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
 
+            // The roll is decided now, but the transaction is applied only after the
+            // spin finishes so nothing is revealed while the needle is still moving.
             currentChance = chance;
             rouletteResult = success;
-            pendingTransaction = transaction;
+            rouletteTargetAngle = RouletteWheel.CalculateTargetAngle(chance, success);
+            pendingSource = source;
+            pendingTarget = targetOption;
             hasRolledCurrentSelection = true;
             isAnimatingRoulette = true;
             rouletteAnimationTimer = 0f;
@@ -355,14 +360,23 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     private void CompleteUpgrade()
     {
-        if (pendingTransaction is null)
+        if (pendingSource is null || pendingTarget is null)
             return;
 
-        if (!pendingTransaction.Value.IsSuccess)
+        Item source = pendingSource;
+        Item targetPreview = pendingTarget.PreviewItem;
+        pendingSource = null;
+        pendingTarget = null;
+
+        UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, rouletteResult);
+        monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; "
+            + $"target={targetPreview.QualifiedItemId}; chance={currentChance:0.####}; "
+            + $"result={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
+
+        if (!transaction.IsSuccess)
         {
-            statusMessage = GetTransactionFailureMessage(pendingTransaction.Value.Status);
+            statusMessage = GetTransactionFailureMessage(transaction.Status);
             hasRolledCurrentSelection = false;
-            pendingTransaction = null;
             return;
         }
 
@@ -371,7 +385,6 @@ internal sealed class UpgradeMenu : IClickableMenu
         hasRolledCurrentSelection = false;
         statusMessage = rouletteResult ? "Upgrade successful!" : "Upgrade failed.";
         Game1.playSound(rouletteResult ? "discoverMineral" : "cancel");
-        pendingTransaction = null;
     }
 
     private bool IsSourceValid()
