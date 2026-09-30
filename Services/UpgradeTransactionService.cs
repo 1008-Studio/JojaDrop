@@ -5,9 +5,13 @@ namespace JojaDrop.Services;
 public sealed class UpgradeTransactionService
 {
     private readonly InventoryBatchService inventory;
+    private readonly UpgradeCalculator calculator;
+    private readonly Func<Item, int?> getValue;
 
-    public UpgradeTransactionService(InventoryBatchService? inventory = null)
+    public UpgradeTransactionService(UpgradeCalculator calculator, Func<Item, int?> getValue, InventoryBatchService? inventory = null)
     {
+        this.calculator = calculator ?? throw new ArgumentNullException(nameof(calculator));
+        this.getValue = getValue ?? throw new ArgumentNullException(nameof(getValue));
         this.inventory = inventory ?? new InventoryBatchService();
     }
 
@@ -24,6 +28,15 @@ public sealed class UpgradeTransactionService
 
         if (sourceQuantity < 1 || outputQuantity < 1)
             return new(UpgradeTransactionStatus.InvalidQuantity);
+
+        int? sourceValue = getValue(sourceItem);
+        int? targetValue = targetPreview is null ? null : getValue(targetPreview);
+        if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= sourceValue.Value
+            || !calculator.IsBatchTargetValueValid(
+                sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        {
+            return new(UpgradeTransactionStatus.InvalidTarget);
+        }
 
         if (!success)
         {

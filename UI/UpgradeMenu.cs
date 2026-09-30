@@ -354,7 +354,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     }
 
     private bool HasUpgradeSelection => sourceItem is not null && targetOption is not null;
-    private bool CanUpgrade => HasUpgradeSelection && availableQuantity >= sourceQuantity && !hasRolledCurrentSelection;
+    private bool CanUpgrade => HasUpgradeSelection && availableQuantity >= sourceQuantity && !hasRolledCurrentSelection
+        && TryGetUpgradePreview(out _, out _);
     private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
     private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
     private bool CanDecreaseOutput => sourceItem is not null && outputQuantity > 1;
@@ -380,6 +381,9 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? sourceValue = itemValues.GetValue(sourceItem);
         int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
         if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= sourceValue.Value)
+            return false;
+
+        if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
             return false;
 
         chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
@@ -432,6 +436,11 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: target must be more valuable.";
                 return;
             }
+            if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+            {
+                statusMessage = "Upgrade unavailable: target batch value is too low.";
+                return;
+            }
 
             double chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
@@ -480,7 +489,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? sourceValue = itemValues.GetValue(source);
         int? targetValue = itemValues.GetValue(targetPreview);
         if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
-            || !targetValue.HasValue || targetValue.Value <= sourceValue.Value)
+            || !targetValue.HasValue || targetValue.Value <= sourceValue.Value
+            || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
         {
             statusMessage = "Upgrade unavailable: target is no longer valid.";
             hasRolledCurrentSelection = false;

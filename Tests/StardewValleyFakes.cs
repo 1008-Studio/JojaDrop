@@ -20,12 +20,14 @@ public class Item
         Stack = stack;
         Quality = quality;
         MaxStackSize = maxStackSize;
+        Value = qualifiedItemId == "target" ? 2 : 1;
     }
 
     public string QualifiedItemId { get; }
     public int Quality { get; }
     public int Stack { get; set; }
     public int MaxStackSize { get; }
+    public int Value { get; init; }
 
     public bool canStackWith(Item other) => QualifiedItemId == other.QualifiedItemId && Quality == other.Quality;
     public int getRemainingStackSpace() => Math.Max(0, MaxStackSize - Stack);

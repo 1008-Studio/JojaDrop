@@ -40,6 +40,13 @@ foreach (int count in new[] { 0, -1, int.MinValue })
     ExpectBatchException<ArgumentOutOfRangeException>(1, count, "targetCount");
 }
 
+if (calculator.IsBatchTargetValueValid(3, 1, 2, 4)
+    || !calculator.IsBatchTargetValueValid(3, 1, 2, 6)
+    || !calculator.IsBatchTargetValueValid(3, 2, 2, 4))
+{
+    throw new InvalidOperationException("Batch target validation must compare total values.");
+}
+
 foreach (int source in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(source, 1000, "sourceValue");
 
@@ -102,7 +109,7 @@ ExpectInventoryPlan(inventoryPlanner.PlanRemoval([new(2, 0, 10), new(3, 0, 10)],
 ExpectInventoryPlan(inventoryPlanner.Plan([new(2, 0, 10)], 2, 1), [new(0, 2)], [new(0, 1)]);
 ExpectInventoryStatus(inventoryPlanner.Plan([new(1, 0, 10)], 2, 1), InventoryBatchPlanStatus.InsufficientSource);
 
-var transactionService = new UpgradeTransactionService();
+var transactionService = new UpgradeTransactionService(calculator, item => item.Value);
 Item legacySource = new("source", 1);
 var legacyPlayer = new Farmer(1, legacySource);
 UpgradeTransactionResult legacyTransaction = transactionService.Apply(legacyPlayer, legacySource, new Item("target", 1), success: true);
@@ -121,13 +128,13 @@ if (!batchSuccess.IsSuccess || batchPlayer.Items[0] is not { QualifiedItemId: "t
 Item failedSourceA = new("source", 2);
 Item failedSourceB = new("source", 3);
 var failedPlayer = new Farmer(2, failedSourceA, failedSourceB);
-UpgradeTransactionResult batchFailure = transactionService.Apply(failedPlayer, failedSourceA, targetPreview: null, 3, 4, success: false);
+UpgradeTransactionResult batchFailure = transactionService.Apply(failedPlayer, failedSourceA, new Item("target", 1), 3, 4, success: false);
 if (!batchFailure.IsSuccess || failedPlayer.Items[0] is not null || failedSourceB.Stack != 2)
     throw new InvalidOperationException("A failed batch transaction must consume q without requiring output capacity.");
 
 Item insufficientSource = new("source", 2);
 var insufficientPlayer = new Farmer(1, insufficientSource);
-if (transactionService.Apply(insufficientPlayer, insufficientSource, new Item("target", 1), 3, 1, success: true).Status
+if (transactionService.Apply(insufficientPlayer, insufficientSource, new Item("target", 1) { Value = 4 }, 3, 1, success: true).Status
     != UpgradeTransactionStatus.InsufficientQuantity || insufficientSource.Stack != 2)
 {
     throw new InvalidOperationException("An insufficient source batch must not mutate inventory.");
@@ -159,6 +166,14 @@ if (transactionService.Apply(new Farmer(1, new Item("source", 1)), new Item("sou
     != UpgradeTransactionStatus.InvalidQuantity)
 {
     throw new InvalidOperationException("Invalid output quantities must return InvalidQuantity.");
+}
+
+Item lowerValueSource = new("source", 3) { Value = 2 };
+var lowerValuePlayer = new Farmer(1, lowerValueSource);
+if (transactionService.Apply(lowerValuePlayer, lowerValueSource, new Item("target", 1) { Value = 4 }, 3, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidTarget || lowerValueSource.Stack != 3)
+{
+    throw new InvalidOperationException("Transaction must reject lower-value target batches without mutation.");
 }
 
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException

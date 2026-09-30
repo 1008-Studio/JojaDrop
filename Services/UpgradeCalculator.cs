@@ -20,6 +20,19 @@ public sealed class UpgradeCalculator
         return Math.Clamp((double)sourceCount * sourceValue / ((double)targetCount * targetValue), 0d, 1d);
     }
 
+    /// <summary>Returns whether the target batch is worth at least as much as the source batch.</summary>
+    public bool IsBatchTargetValueValid(int sourceCount, int targetCount, int sourceValue, int targetValue)
+    {
+        if (sourceCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(sourceCount), "Source count must be at least one.");
+
+        if (targetCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(targetCount), "Target count must be at least one.");
+
+        ValidateValues(sourceValue, targetValue);
+        return (long)targetCount * targetValue >= (long)sourceCount * sourceValue;
+    }
+
     /// <summary>Gets the legacy one-source-to-one-target batch probability.</summary>
     public double CalculateChance(int sourceValue, int targetValue)
     {
