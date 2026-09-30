@@ -46,6 +46,14 @@ internal sealed class UpgradeMenu : IClickableMenu
     private bool isProcessingUpgrade;
     private bool hasRolledCurrentSelection;
 
+    private bool isAnimatingRoulette;
+    private float rouletteAnimationTimer;
+    private double currentChance;
+    private bool rouletteResult;
+    private float rouletteTargetAngle;
+    private Item? pendingSource;
+    private TargetItemOption? pendingTarget;
+
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor)
     {
@@ -113,11 +121,28 @@ internal sealed class UpgradeMenu : IClickableMenu
         base.update(time);
         if (viewportSize.X != Game1.uiViewport.Width || viewportSize.Y != Game1.uiViewport.Height)
             UpdateLayout();
+        if (isAnimatingRoulette)
+        {
+            // The transaction already ran at click time and may have (in)validly removed our
+            // source item — that is expected. Never cancel a spin mid-flight; only advance it.
+            rouletteAnimationTimer += (float)time.ElapsedGameTime.TotalSeconds;
+            if (rouletteAnimationTimer >= RouletteWheel.SpinDuration)
+            {
+                isAnimatingRoulette = false;
+                CompleteUpgrade();
+            }
+            return;
+        }
+
         if (sourceItem is not null && !IsSourceValid())
         {
             sourceItem = null;
             targetOption = null;
             hasRolledCurrentSelection = false;
+            rouletteAnimationTimer = 0f;
+            pendingSource = null;
+            pendingTarget = null;
+            rouletteResult = false;
         }
     }
 
@@ -130,6 +155,9 @@ internal sealed class UpgradeMenu : IClickableMenu
             exitThisMenu();
             return;
         }
+        // The spin is one-shot: do not let slot re-selection wipe the pending result.
+        if (isAnimatingRoulette)
+            return;
         if (sourceSlot.containsPoint(x, y))
         {
             if (playSound)
@@ -141,6 +169,11 @@ internal sealed class UpgradeMenu : IClickableMenu
                     sourceItem = item;
                     targetOption = null;
                     hasRolledCurrentSelection = false;
+                    isAnimatingRoulette = false;
+                    rouletteAnimationTimer = 0f;
+                    pendingSource = null;
+                    pendingTarget = null;
+                    rouletteResult = false;
                     statusMessage = "";
                 }
                 Game1.activeClickableMenu = this;
@@ -158,6 +191,11 @@ internal sealed class UpgradeMenu : IClickableMenu
                 {
                     targetOption = option;
                     hasRolledCurrentSelection = false;
+                    isAnimatingRoulette = false;
+                    rouletteAnimationTimer = 0f;
+                    pendingSource = null;
+                    pendingTarget = null;
+                    rouletteResult = false;
                     statusMessage = "";
                 }
                 Game1.activeClickableMenu = this;
@@ -191,6 +229,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         hoverText = sourceSlot.containsPoint(x, y) ? "Choose an item from your inventory.\nSelection leaves it in your backpack."
             : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
             : targetSlot.containsPoint(x, y) ? "Choose a target item."
+            : upgradeButton.containsPoint(x, y) && isAnimatingRoulette ? "Upgrade in progress..."
             : upgradeButton.containsPoint(x, y) && hasRolledCurrentSelection ? "Select an item or target to make another attempt."
             : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Attempt an upgrade using the shown chance."
             : "";
@@ -202,16 +241,28 @@ internal sealed class UpgradeMenu : IClickableMenu
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
         DrawItemSlot(b, sourceSlot, "Your Item", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem));
         DrawItemSlot(b, targetSlot, "Target Item", targetOption?.PreviewItem, targetOption?.Value, sourceItem is not null);
-        MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(ChanceTopOffset), Color.SteelBlue, 1.5f * layoutScale);
-        MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, sourceSlot.bounds.Y + Scale(MultiplierTopOffset), Color.SteelBlue, layoutScale);
+
+        // Chance and multiplier above UPGRADE button
+        int buttonTop = upgradeButton.bounds.Y;
+        MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, buttonTop - Scale(56), Color.SteelBlue, 1.5f * layoutScale);
+        MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, buttonTop - Scale(24), Color.SteelBlue, layoutScale);
+
         MenuDrawing.TextButton(b, upgradeButton, "UPGRADE", upgradeButton.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)),
-            enabled: CanUpgrade, textScale: layoutScale);
+            enabled: CanUpgrade && !isAnimatingRoulette, textScale: layoutScale);
         string status = statusMessage.Length > 0 ? statusMessage
             : sourceItem is null ? "Select an item to begin."
             : targetOption is null ? "Select a target item."
             : "Target selected. Upgrade preview is ready.";
         MenuDrawing.CenteredText(b, MenuDrawing.FitText(status, width - MenuDrawing.ScreenMargin * 2),
             xPositionOnScreen + width / 2, yPositionOnScreen + height - Scale(StatusBottomOffset), scale: layoutScale);
+
+        // Wheel must be drawn before hover text and the cursor so it stays inside the menu.
+        if (HasUpgradeSelection && TryGetUpgradePreview(out double wheelChance, out _))
+        {
+            Vector2 wheelCenter = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
+            RouletteWheel.Draw(b, wheelCenter, wheelChance, rouletteAnimationTimer, isAnimatingRoulette, rouletteTargetAngle, layoutScale);
+        }
+
         base.draw(b);
         if (hoverText.Length > 0)
             drawHoverText(b, hoverText, Game1.smallFont);
@@ -250,7 +301,7 @@ internal sealed class UpgradeMenu : IClickableMenu
 
     private void ProcessUpgrade()
     {
-        if (isProcessingUpgrade || hasRolledCurrentSelection || sourceItem is null || targetOption is null)
+        if (isProcessingUpgrade || hasRolledCurrentSelection || sourceItem is null || targetOption is null || isAnimatingRoulette)
             return;
 
         isProcessingUpgrade = true;
@@ -287,28 +338,53 @@ internal sealed class UpgradeMenu : IClickableMenu
             }
 
             double chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
-            hasRolledCurrentSelection = true;
             bool success = upgradeRoller.Roll(chance);
-            UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, success);
-            monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; sourceValue={sourceValue.Value}; "
-                + $"target={targetPreview.QualifiedItemId}; targetValue={targetValue.Value}; chance={chance:0.####}; "
-                + $"result={(success ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
-            if (!transaction.IsSuccess)
-            {
-                statusMessage = GetTransactionFailureMessage(transaction.Status);
-                return;
-            }
 
-            sourceItem = null;
-            targetOption = null;
-            hasRolledCurrentSelection = false;
-            statusMessage = success ? "Upgrade successful!" : "Upgrade failed.";
-            Game1.playSound(success ? "discoverMineral" : "cancel");
+            // The roll is decided now, but the transaction is applied only after the
+            // spin finishes so nothing is revealed while the needle is still moving.
+            currentChance = chance;
+            rouletteResult = success;
+            rouletteTargetAngle = RouletteWheel.CalculateTargetAngle(chance, success);
+            pendingSource = source;
+            pendingTarget = targetOption;
+            hasRolledCurrentSelection = true;
+            isAnimatingRoulette = true;
+            rouletteAnimationTimer = 0f;
+            Game1.playSound("cowboy_monsterhit");
         }
         finally
         {
             isProcessingUpgrade = false;
         }
+    }
+
+    private void CompleteUpgrade()
+    {
+        if (pendingSource is null || pendingTarget is null)
+            return;
+
+        Item source = pendingSource;
+        Item targetPreview = pendingTarget.PreviewItem;
+        pendingSource = null;
+        pendingTarget = null;
+
+        UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, rouletteResult);
+        monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; "
+            + $"target={targetPreview.QualifiedItemId}; chance={currentChance:0.####}; "
+            + $"result={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
+
+        if (!transaction.IsSuccess)
+        {
+            statusMessage = GetTransactionFailureMessage(transaction.Status);
+            hasRolledCurrentSelection = false;
+            return;
+        }
+
+        sourceItem = null;
+        targetOption = null;
+        hasRolledCurrentSelection = false;
+        statusMessage = rouletteResult ? "Upgrade successful!" : "Upgrade failed.";
+        Game1.playSound(rouletteResult ? "discoverMineral" : "cancel");
     }
 
     private bool IsSourceValid()
