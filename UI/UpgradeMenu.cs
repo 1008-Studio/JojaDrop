@@ -257,6 +257,16 @@ internal sealed class UpgradeMenu : IClickableMenu
                 if (option is not null)
                 {
                     targetOption = option;
+                    if (!TryGetMinimumOutputQuantity(out int minimumOutput))
+                    {
+                        targetOption = null;
+                        statusMessage = "Upgrade unavailable: target item has no valid value.";
+                        Game1.activeClickableMenu = this;
+                        UpdateLayout();
+                        return;
+                    }
+
+                    outputQuantity = minimumOutput;
                     RefreshQuantityState();
                     hasRolledCurrentSelection = false;
                     isAnimatingRoulette = false;
@@ -358,7 +368,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         && TryGetUpgradePreview(out _, out _);
     private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
     private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
-    private bool CanDecreaseOutput => sourceItem is not null && outputQuantity > 1;
+    private bool CanDecreaseOutput => TryGetMinimumOutputQuantity(out int minimumOutput) && outputQuantity > minimumOutput;
     private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < int.MaxValue;
 
     private string GetChanceText()
@@ -380,7 +390,7 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         int? sourceValue = itemValues.GetValue(sourceItem);
         int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
-        if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= sourceValue.Value)
+        if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= 0)
             return false;
 
         if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
@@ -431,9 +441,9 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: source item has no valid value.";
                 return;
             }
-            if (!targetValue.HasValue || targetValue.Value <= sourceValue.Value)
+            if (!targetValue.HasValue || targetValue.Value <= 0)
             {
-                statusMessage = "Upgrade unavailable: target must be more valuable.";
+                statusMessage = "Upgrade unavailable: target item has no valid value.";
                 return;
             }
             if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
@@ -489,7 +499,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? sourceValue = itemValues.GetValue(source);
         int? targetValue = itemValues.GetValue(targetPreview);
         if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
-            || !targetValue.HasValue || targetValue.Value <= sourceValue.Value
+            || !targetValue.HasValue || targetValue.Value <= 0
             || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
         {
             statusMessage = "Upgrade unavailable: target is no longer valid.";
@@ -538,6 +548,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (availableQuantity > 0)
             sourceQuantity = Math.Clamp(sourceQuantity, 1, availableQuantity);
         outputQuantity = Math.Max(1, outputQuantity);
+        EnsureMinimumOutputQuantity();
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
@@ -546,14 +557,32 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         RefreshQuantityState();
         sourceQuantity = Math.Clamp(sourceQuantity + delta, 1, Math.Max(1, availableQuantity));
+        EnsureMinimumOutputQuantity();
     }
 
     private void ChangeOutputQuantity(int delta)
     {
-        if (delta < 0)
-            outputQuantity = Math.Max(1, outputQuantity - 1);
+        if (delta < 0 && TryGetMinimumOutputQuantity(out int minimumOutput))
+            outputQuantity = Math.Max(minimumOutput, outputQuantity - 1);
         else if (delta > 0 && outputQuantity < int.MaxValue)
             outputQuantity++;
+    }
+
+    private void EnsureMinimumOutputQuantity()
+    {
+        if (TryGetMinimumOutputQuantity(out int minimumOutput))
+            outputQuantity = Math.Max(outputQuantity, minimumOutput);
+    }
+
+    private bool TryGetMinimumOutputQuantity(out int minimumOutput)
+    {
+        minimumOutput = 0;
+        if (sourceItem is null || targetOption is null)
+            return false;
+
+        int? sourceValue = itemValues.GetValue(sourceItem);
+        return sourceValue.HasValue
+            && upgradeCalculator.TryGetMinimumTargetQuantity(sourceQuantity, sourceValue.Value, targetOption.Value, out minimumOutput);
     }
 
     private void DrawQuantityControl(SpriteBatch b, ClickableComponent decrease, ClickableComponent increase, int quantity, bool canDecrease, bool canIncrease)

@@ -56,15 +56,33 @@ if (Math.Abs(calculator.CalculateChance(23, 100, 2, 4) - 0.115d) > 1e-12
     throw new InvalidOperationException("Target batches must be independent of source quantity and use safe totals.");
 }
 
+foreach (var (sourceCount, sourceValue, targetValue, expected) in new[]
+{
+    (23, 2, 1, 46),
+    (23, 2, 3, 16),
+    (23, 2, 4, 12),
+    (23, 2, 100, 1),
+    (1, 100, 3, 34)
+})
+{
+    if (!calculator.TryGetMinimumTargetQuantity(sourceCount, sourceValue, targetValue, out int actual) || actual != expected)
+        throw new InvalidOperationException("Incorrect minimum target quantity.");
+}
+
+if (calculator.TryGetMinimumTargetQuantity(23, 2, 0, out _)
+    || calculator.TryGetMinimumTargetQuantity(int.MaxValue, int.MaxValue, 1, out _)
+    || Math.Abs(calculator.CalculateChance(23, 46, 2, 1) - 1d) > 1e-12
+    || Math.Abs(calculator.CalculateChance(23, 16, 2, 3) - 46d / 48d) > 1e-12)
+{
+    throw new InvalidOperationException("Cheaper targets must use safe minimum quantities.");
+}
+
 foreach (int source in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(source, 1000, "sourceValue");
 
 foreach (int target in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(1000, target, "targetValue");
 
-ExpectException<ArgumentException>(1000, 1000, "targetValue");
-ExpectException<ArgumentException>(1000, 500, "targetValue");
-ExpectException<ArgumentException>(int.MaxValue, int.MaxValue, "targetValue");
 
 for (int i = 0; i < 10; i++)
 {
@@ -197,6 +215,14 @@ if (transactionService.Apply(lowerValuePlayer, lowerValueSource, new Item("targe
     != UpgradeTransactionStatus.InvalidTarget || lowerValueSource.Stack != 3)
 {
     throw new InvalidOperationException("Transaction must reject lower-value target batches without mutation.");
+}
+
+Item cheapTargetSource = new("source", 23) { Value = 2 };
+var cheapTargetPlayer = new Farmer(1, cheapTargetSource);
+if (!transactionService.Apply(cheapTargetPlayer, cheapTargetSource, new Item("target", 1) { Value = 1 }, 23, 46, success: true).IsSuccess
+    || cheapTargetPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 46 })
+{
+    throw new InvalidOperationException("A cheaper target must be accepted when its batch total covers the source.");
 }
 
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException

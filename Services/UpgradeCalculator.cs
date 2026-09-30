@@ -33,6 +33,22 @@ public sealed class UpgradeCalculator
         return (long)targetCount * targetValue >= (long)sourceCount * sourceValue;
     }
 
+    /// <summary>Gets the smallest target count whose total value covers the source batch.</summary>
+    public bool TryGetMinimumTargetQuantity(int sourceCount, int sourceValue, int targetValue, out int targetCount)
+    {
+        targetCount = 0;
+        if (sourceCount < 1 || sourceValue < 1 || targetValue < 1)
+            return false;
+
+        long sourceTotal = (long)sourceCount * sourceValue;
+        long minimum = sourceTotal / targetValue + (sourceTotal % targetValue == 0 ? 0 : 1);
+        if (minimum > int.MaxValue)
+            return false;
+
+        targetCount = (int)Math.Max(1, minimum);
+        return true;
+    }
+
     /// <summary>Gets the legacy one-source-to-one-target batch probability.</summary>
     public double CalculateChance(int sourceValue, int targetValue)
     {
@@ -47,7 +63,5 @@ public sealed class UpgradeCalculator
         if (targetValue <= 0)
             throw new ArgumentOutOfRangeException(nameof(targetValue), "Target value must be positive.");
 
-        if (targetValue <= sourceValue)
-            throw new ArgumentException("Target value must exceed source value.", nameof(targetValue));
     }
 }
