@@ -82,6 +82,13 @@ internal sealed class InventoryIntegration
         if (!clicked && !shortcut)
             return;
 
+        if (Context.IsMultiplayer && !Context.IsMainPlayer)
+        {
+            Game1.showRedMessage("JojaDrop upgrades are host-only in multiplayer.");
+            monitor.Log("Blocked a farmhand from opening the local upgrade menu.", LogLevel.Trace);
+            return;
+        }
+
         helper.Input.Suppress(e.Button);
         Game1.playSound("bigSelect");
         Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService,
