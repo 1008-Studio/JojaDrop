@@ -194,7 +194,7 @@ internal sealed class TargetItemMenu : IClickableMenu
                 continue;
 
             TargetItemOption option = GetOption(i);
-            hoverText = $"{option.DisplayName}\n{option.Value:N0}g\nx{option.Multiplier:0.00}\n{option.Chance * 100:0.00}% chance";
+            hoverText = $"{option.DisplayName}\n{option.Value:N0}g\nx{option.Multiplier:0.00}\n{option.BaseChance * 100:0.00}% base chance (1 → 1)";
             break;
         }
     }
