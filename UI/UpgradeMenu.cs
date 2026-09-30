@@ -319,8 +319,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         MenuDrawing.Panel(b, this);
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
-        DrawItemSlot(b, sourceSlot, "Your Item", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem));
-        DrawItemSlot(b, targetSlot, "Target Item", targetOption?.PreviewItem, targetOption?.Value, sourceItem is not null);
+        DrawItemSlot(b, sourceSlot, $"Your Item ×{sourceQuantity}", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem), sourceQuantity);
+        DrawItemSlot(b, targetSlot, $"Target ×{outputQuantity}", targetOption?.PreviewItem, targetOption?.Value, outputQuantity, sourceItem is not null);
         DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
         DrawQuantityControl(b, outputDecreaseButton, outputIncreaseButton, outputQuantity, CanDecreaseOutput, CanIncreaseOutput);
 
@@ -382,8 +382,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= sourceValue.Value)
             return false;
 
-        chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
-        multiplier = (double)targetValue.Value / sourceValue.Value;
+        chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
+        multiplier = (double)outputQuantity * targetValue.Value / ((double)sourceQuantity * sourceValue.Value);
         return true;
     }
 
@@ -433,7 +433,7 @@ internal sealed class UpgradeMenu : IClickableMenu
                 return;
             }
 
-            double chance = upgradeCalculator.CalculateChance(sourceValue.Value, targetValue.Value);
+            double chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
 
             // The roll is decided now, but the transaction is applied only after the
@@ -562,7 +562,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         };
     }
 
-    private void DrawItemSlot(SpriteBatch b, ClickableComponent slot, string label, Item? item, int? value, bool enabled = true)
+    private void DrawItemSlot(SpriteBatch b, ClickableComponent slot, string label, Item? item, int? value, int quantity = 1, bool enabled = true)
     {
         MenuDrawing.CenteredText(b, label, slot.bounds.Center.X, slot.bounds.Y - Scale(LabelGap), scale: layoutScale);
         MenuDrawing.Slot(b, slot.bounds, item, slot.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)), enabled);
@@ -571,7 +571,10 @@ internal sealed class UpgradeMenu : IClickableMenu
             slot.bounds.Bottom + Scale(ItemNameGap), scale: layoutScale);
         if (item is not null)
         {
-            MenuDrawing.CenteredText(b, value.HasValue ? $"{value.Value:N0}g / item" : "Value unavailable",
+            string valueText = value.HasValue
+                ? quantity == 1 ? $"{value.Value:N0}g / item" : $"{quantity} × {value.Value:N0}g = {(long)quantity * value.Value:N0}g"
+                : "Value unavailable";
+            MenuDrawing.CenteredText(b, valueText,
                 slot.bounds.Center.X, slot.bounds.Bottom + Scale(ItemValueGap), scale: layoutScale);
         }
     }
