@@ -261,7 +261,8 @@ internal sealed class UpgradeMenu : IClickableMenu
             xPositionOnScreen + width / 2, yPositionOnScreen + height - Scale(StatusBottomOffset), scale: layoutScale);
 
         // Wheel must be drawn before hover text and the cursor so it stays inside the menu.
-        if (HasUpgradeSelection && TryGetUpgradePreview(out double wheelChance, out _))
+        double wheelChance = currentChance;
+        if (HasUpgradeSelection && (isAnimatingRoulette || TryGetUpgradePreview(out wheelChance, out _)))
         {
             Vector2 wheelCenter = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
             RouletteWheel.Draw(b, wheelCenter, wheelChance, rouletteAnimationTimer, isAnimatingRoulette, rouletteTargetAngle, layoutScale);
