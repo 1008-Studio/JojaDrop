@@ -4,111 +4,171 @@ namespace JojaDrop.Services;
 
 public sealed class UpgradeTransactionService
 {
-    public UpgradeTransactionResult Apply(Farmer player, Item sourceItem, Item targetPreview, bool success)
+    private readonly InventoryBatchService inventory;
+    private readonly UpgradeCalculator calculator;
+    private readonly Func<Item, int?> getValue;
+
+    public UpgradeTransactionService(UpgradeCalculator calculator, Func<Item, int?> getValue, InventoryBatchService? inventory = null)
+    {
+        this.calculator = calculator ?? throw new ArgumentNullException(nameof(calculator));
+        this.getValue = getValue ?? throw new ArgumentNullException(nameof(getValue));
+        this.inventory = inventory ?? new InventoryBatchService();
+    }
+
+    public UpgradeTransactionResult Apply(Farmer player, Item sourceItem, Item? targetPreview, bool success)
+    {
+        return Apply(player, sourceItem, targetPreview, 1, 1, success);
+    }
+
+    public UpgradeTransactionResult Apply(Farmer player, Item sourceItem, Item? targetPreview,
+        int sourceQuantity, int outputQuantity, bool success)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(sourceItem);
 
-        if (!ContainsSource(player, sourceItem))
-            return new(UpgradeTransactionStatus.SourceMissing);
+        if (sourceQuantity < 1 || outputQuantity < 1)
+            return new(UpgradeTransactionStatus.InvalidQuantity);
+
+        int? sourceValue = getValue(sourceItem);
+        int? targetValue = targetPreview is null ? null : getValue(targetPreview);
+        if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0
+            || !calculator.IsBatchTargetValueValid(
+                sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        {
+            return new(UpgradeTransactionStatus.InvalidTarget);
+        }
 
         if (!success)
         {
-            return TryRemoveOne(player, sourceItem)
+            InventoryBatchPlanResult removalPlan = inventory.PlanRemoval(player, sourceItem, sourceQuantity);
+            if (!removalPlan.IsSuccess || removalPlan.Plan is null)
+                return new(MapPlanStatus(removalPlan.Status));
+
+            return TryApplyPlan(player, sourceItem, targetItem: null, removalPlan.Plan, Array.Empty<Item>())
                 ? new(UpgradeTransactionStatus.Success)
                 : new(UpgradeTransactionStatus.TransactionFailed);
         }
 
-        if (!TryCreateTarget(targetPreview, out Item? target) || target is null)
+        if (!TryCreateTarget(targetPreview, 1, out Item? targetTemplate) || targetTemplate is null)
             return new(UpgradeTransactionStatus.InvalidTarget);
 
-        try
-        {
-            // A one-item source frees its own slot; otherwise the target must fit now.
-            if (sourceItem.Stack > 1 && !player.couldInventoryAcceptThisItem(target))
-                return new(UpgradeTransactionStatus.InventoryFull);
-        }
-        catch (Exception)
-        {
-            return new(UpgradeTransactionStatus.TransactionFailed);
-        }
+        InventoryBatchPlanResult planResult = inventory.Plan(player, sourceItem, targetTemplate, sourceQuantity, outputQuantity);
+        if (!planResult.IsSuccess || planResult.Plan is null)
+            return new(MapPlanStatus(planResult.Status));
 
-        int sourceStack = sourceItem.Stack;
-        try
-        {
-            RemoveOne(player, sourceItem);
-        }
-        catch (Exception)
-        {
-            return new(UpgradeTransactionStatus.TransactionFailed);
-        }
+        if (!TryCreateTargets(targetPreview, planResult.Plan.OutputInsertions, out List<Item>? targets) || targets is null)
+            return new(UpgradeTransactionStatus.InvalidTarget);
 
-        try
-        {
-            if (player.addItemToInventory(target) is null)
-                return new(UpgradeTransactionStatus.Success);
-        }
-        catch (Exception)
-        {
-            if (WasTargetAdded(player, target))
-                return new(UpgradeTransactionStatus.Success);
-
-            RestoreSource(player, sourceItem, sourceStack);
-            return new(UpgradeTransactionStatus.TransactionFailed);
-        }
-
-        RestoreSource(player, sourceItem, sourceStack);
-        return new(UpgradeTransactionStatus.InventoryFull);
+        return TryApplyPlan(player, sourceItem, targetTemplate, planResult.Plan, targets)
+            ? new(UpgradeTransactionStatus.Success)
+            : new(UpgradeTransactionStatus.TransactionFailed);
     }
 
-    private static bool ContainsSource(Farmer player, Item sourceItem)
+    private static UpgradeTransactionStatus MapPlanStatus(InventoryBatchPlanStatus status)
     {
-        return sourceItem.Stack > 0 && player.Items.Any(item => ReferenceEquals(item, sourceItem));
+        return status switch
+        {
+            InventoryBatchPlanStatus.InvalidQuantity => UpgradeTransactionStatus.InvalidQuantity,
+            InventoryBatchPlanStatus.SourceMissing => UpgradeTransactionStatus.SourceMissing,
+            InventoryBatchPlanStatus.InsufficientSource => UpgradeTransactionStatus.InsufficientQuantity,
+            InventoryBatchPlanStatus.InsufficientOutputCapacity => UpgradeTransactionStatus.InventoryFull,
+            _ => UpgradeTransactionStatus.TransactionFailed
+        };
     }
 
-    private static void RemoveOne(Farmer player, Item sourceItem)
+    private static bool TryApplyPlan(Farmer player, Item sourceItem, Item? targetItem, InventoryBatchPlan plan, IReadOnlyList<Item> targets)
     {
-        if (sourceItem.Stack > 1)
-            sourceItem.Stack--;
-        else
-            player.removeItemFromInventory(sourceItem);
-    }
+        if (plan.OutputInsertions.Count != targets.Count)
+            return false;
 
-    private static void RestoreSource(Farmer player, Item sourceItem, int sourceStack)
-    {
-        if (sourceStack > 1)
-            sourceItem.Stack++;
-        else
-            player.addItemToInventory(sourceItem);
-    }
+        Item?[] originalItems = player.Items.Select(item => (Item?)item).ToArray();
+        int[] originalStacks = originalItems.Select(item => item?.Stack ?? 0).ToArray();
 
-    private static bool TryRemoveOne(Farmer player, Item sourceItem)
-    {
         try
         {
-            RemoveOne(player, sourceItem);
+            foreach (InventoryBatchRemoval removal in plan.SourceRemovals)
+            {
+                if (removal.SlotIndex < 0 || removal.SlotIndex >= player.Items.Count)
+                    throw new InvalidOperationException();
+
+                Item? source = player.Items[removal.SlotIndex];
+                if (source is null || !sourceItem.canStackWith(source) || source.Stack < removal.Quantity)
+                    throw new InvalidOperationException();
+
+                source.Stack -= removal.Quantity;
+                if (source.Stack == 0)
+                    player.Items[removal.SlotIndex] = null;
+            }
+
+            for (int index = 0; index < plan.OutputInsertions.Count; index++)
+            {
+                InventoryBatchInsertion insertion = plan.OutputInsertions[index];
+                if (targetItem is null || insertion.SlotIndex < 0 || insertion.SlotIndex >= player.Items.Count)
+                    throw new InvalidOperationException();
+
+                Item? existing = player.Items[insertion.SlotIndex];
+                if (existing is null)
+                {
+                    if (targets[index].Stack != insertion.Quantity)
+                        throw new InvalidOperationException();
+
+                    player.Items[insertion.SlotIndex] = targets[index];
+                    continue;
+                }
+
+                if (!existing.canStackWith(targetItem) || existing.getRemainingStackSpace() < insertion.Quantity)
+                    throw new InvalidOperationException();
+
+                existing.Stack += insertion.Quantity;
+            }
+
             return true;
         }
         catch (Exception)
         {
+            RestoreInventory(player, originalItems, originalStacks);
             return false;
         }
     }
 
-    private static bool WasTargetAdded(Farmer player, Item target)
+    private static void RestoreInventory(Farmer player, IReadOnlyList<Item?> items, IReadOnlyList<int> stacks)
     {
-        return target.Stack <= 0 || player.Items.Any(item => ReferenceEquals(item, target));
+        for (int index = 0; index < items.Count; index++)
+            player.Items[index] = items[index];
+
+        for (int index = 0; index < items.Count; index++)
+        {
+            if (items[index] is Item item)
+                item.Stack = stacks[index];
+        }
     }
 
-    private static bool TryCreateTarget(Item? targetPreview, out Item? target)
+    private static bool TryCreateTargets(Item? targetPreview, IReadOnlyList<InventoryBatchInsertion> insertions, out List<Item>? targets)
+    {
+        targets = new(insertions.Count);
+        foreach (InventoryBatchInsertion insertion in insertions)
+        {
+            if (!TryCreateTarget(targetPreview, insertion.Quantity, out Item? target) || target is null)
+            {
+                targets = null;
+                return false;
+            }
+
+            targets.Add(target);
+        }
+
+        return true;
+    }
+
+    private static bool TryCreateTarget(Item? targetPreview, int amount, out Item? target)
     {
         target = null;
-        if (targetPreview is null || string.IsNullOrWhiteSpace(targetPreview.QualifiedItemId))
+        if (amount < 1 || targetPreview is null || string.IsNullOrWhiteSpace(targetPreview.QualifiedItemId))
             return false;
 
         try
         {
-            target = ItemRegistry.Create(targetPreview.QualifiedItemId, amount: 1, quality: targetPreview.Quality, allowNull: true);
+            target = ItemRegistry.Create(targetPreview.QualifiedItemId, amount, quality: targetPreview.Quality, allowNull: true);
             return target is not null;
         }
         catch (Exception)

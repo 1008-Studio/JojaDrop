@@ -12,11 +12,29 @@ internal static class MenuDrawing
     private const float SlotLayerDepth = 0.9f;
     private const float HoverLayerDepth = 0.95f;
     private const int InventorySlotIndex = 10;
+    private const int PanelContentInset = 20;
+    private const int GradientStepHeight = 4;
+    private static readonly Color BackgroundTopTint = new(255, 203, 123, 240);
+    private static readonly Color BackgroundBottomTint = new(232, 165, 100, 240);
 
     public static void Panel(SpriteBatch b, IClickableMenu menu)
     {
         b.Draw(Game1.fadeToBlackRect, new Rectangle(0, 0, Game1.uiViewport.Width, Game1.uiViewport.Height), Color.Black * 0.5f);
         IClickableMenu.drawTextureBox(b, menu.xPositionOnScreen, menu.yPositionOnScreen, menu.width, menu.height, Color.White);
+
+        Rectangle content = new(menu.xPositionOnScreen + PanelContentInset,
+            menu.yPositionOnScreen + PanelContentInset,
+            menu.width - PanelContentInset * 2,
+            menu.height - PanelContentInset * 2);
+        if (content.Width <= 0 || content.Height <= 0)
+            return;
+
+        for (int y = 0; y < content.Height; y += GradientStepHeight)
+        {
+            int height = Math.Min(GradientStepHeight, content.Height - y);
+            Color tint = Color.Lerp(BackgroundTopTint, BackgroundBottomTint, (y + height / 2f) / content.Height);
+            b.Draw(Game1.fadeToBlackRect, new Rectangle(content.X, content.Y + y, content.Width, height), tint);
+        }
     }
 
     public static void CenteredText(SpriteBatch b, string text, int centerX, int y, Color? color = null, float scale = 1f)

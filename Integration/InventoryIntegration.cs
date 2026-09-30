@@ -19,6 +19,11 @@ internal sealed class InventoryIntegration
     private readonly UpgradeTransactionService transactionService;
     private readonly TargetItemProvider targetItemProvider;
     private readonly PerScreen<UpgradeButton> buttons;
+    private readonly Texture2D wheelArrow;
+    private readonly Texture2D wheelCenter;
+    private readonly Texture2D wheelFrame;
+    private float hiddenCursorTransparency;
+    private bool restoreCursor;
 
     public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues, UpgradeCalculator upgradeCalculator,
         UpgradeRoller upgradeRoller, UpgradeTransactionService transactionService)
@@ -31,11 +36,15 @@ internal sealed class InventoryIntegration
         this.transactionService = transactionService;
         targetItemProvider = new TargetItemProvider(itemValues, upgradeCalculator, monitor);
         Texture2D buttonTexture = helper.ModContent.Load<Texture2D>("assets/upgrade-button.png");
+        wheelArrow = helper.ModContent.Load<Texture2D>("assets/wheel/wheel_arrow.png");
+        wheelCenter = helper.ModContent.Load<Texture2D>("assets/wheel/wheel_center.png");
+        wheelFrame = helper.ModContent.Load<Texture2D>("assets/wheel/wheel_frame.png");
         buttons = new PerScreen<UpgradeButton>(() => new UpgradeButton(buttonTexture));
     }
 
     public void RegisterEvents()
     {
+        helper.Events.Display.RenderingActiveMenu += OnRenderingActiveMenu;
         helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
@@ -51,8 +60,24 @@ internal sealed class InventoryIntegration
             : null;
     }
 
+    private void OnRenderingActiveMenu(object? sender, RenderingActiveMenuEventArgs e)
+    {
+        if (GetInventoryMenu() is null)
+            return;
+
+        hiddenCursorTransparency = Game1.mouseCursorTransparency;
+        Game1.mouseCursorTransparency = 0f;
+        restoreCursor = true;
+    }
+
     private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
+        if (!restoreCursor)
+            return;
+
+        Game1.mouseCursorTransparency = hiddenCursorTransparency;
+        restoreCursor = false;
+
         GameMenu? menu = GetInventoryMenu();
         if (menu is null)
             return;
@@ -77,9 +102,17 @@ internal sealed class InventoryIntegration
         if (!clicked && !shortcut)
             return;
 
+        if (Context.IsMultiplayer && !Context.IsMainPlayer)
+        {
+            Game1.showRedMessage("JojaDrop upgrades are host-only in multiplayer.");
+            monitor.Log("Blocked a farmhand from opening the local upgrade menu.", LogLevel.Trace);
+            return;
+        }
+
         helper.Input.Suppress(e.Button);
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService, targetItemProvider, monitor);
+        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService,
+            targetItemProvider, monitor, wheelArrow, wheelCenter, wheelFrame);
         monitor.Log("Opened JojaDrop upgrader.", LogLevel.Trace);
     }
 }

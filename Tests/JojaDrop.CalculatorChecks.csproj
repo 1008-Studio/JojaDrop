@@ -10,5 +10,8 @@
     <Compile Include="../Services/UpgradeCalculator.cs" Link="UpgradeCalculator.cs" />
     <Compile Include="../Services/UpgradeRoller.cs" Link="UpgradeRoller.cs" />
     <Compile Include="../Services/UpgradeTransactionResult.cs" Link="UpgradeTransactionResult.cs" />
+    <Compile Include="../Services/InventoryBatchPlanner.cs" Link="InventoryBatchPlanner.cs" />
+    <Compile Include="../Services/InventoryBatchService.cs" Link="InventoryBatchService.cs" />
+    <Compile Include="../Services/UpgradeTransactionService.cs" Link="UpgradeTransactionService.cs" />
   </ItemGroup>
 </Project>

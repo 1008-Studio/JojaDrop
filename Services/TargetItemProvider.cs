@@ -23,7 +23,7 @@ public sealed class TargetItemProvider
         this.monitor = monitor;
     }
 
-    /// <summary>Get preview-only targets whose value is greater than the source item's value.</summary>
+    /// <summary>Get preview-only targets with a positive value.</summary>
     public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem)
     {
         ArgumentNullException.ThrowIfNull(sourceItem);
@@ -33,7 +33,7 @@ public sealed class TargetItemProvider
             return Array.Empty<TargetItemOption>();
 
         return GetCachedTargets()
-            .Where(target => target.Value > sourceValue.Value)
+            .Where(target => target.Value > 0)
             .Select(target => new TargetItemOption(
                 target.PreviewItem,
                 target.Value,
