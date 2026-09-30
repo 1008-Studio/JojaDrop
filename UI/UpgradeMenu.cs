@@ -32,6 +32,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
     private readonly UpgradeTransactionService transactionService;
+    private readonly InventoryBatchService inventory = new();
     private readonly TargetItemProvider targetItemProvider;
     private readonly IMonitor monitor;
     private readonly Texture2D wheelArrow;
@@ -42,6 +43,9 @@ internal sealed class UpgradeMenu : IClickableMenu
     private ClickableComponent upgradeButton = null!;
     private Item? sourceItem;
     private TargetItemOption? targetOption;
+    private int sourceQuantity = 1;
+    private int outputQuantity = 1;
+    private int availableQuantity;
     private string hoverText = "";
     private string statusMessage = "";
     private Point viewportSize;
@@ -56,6 +60,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     private float rouletteTargetAngle;
     private Item? pendingSource;
     private TargetItemOption? pendingTarget;
+    private int pendingSourceQuantity;
+    private int pendingOutputQuantity;
 
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor,
@@ -144,11 +150,18 @@ internal sealed class UpgradeMenu : IClickableMenu
         {
             sourceItem = null;
             targetOption = null;
+            ResetQuantityState();
             hasRolledCurrentSelection = false;
             rouletteAnimationTimer = 0f;
             pendingSource = null;
             pendingTarget = null;
+            pendingSourceQuantity = 0;
+            pendingOutputQuantity = 0;
             rouletteResult = false;
+        }
+        else if (sourceItem is not null)
+        {
+            RefreshQuantityState();
         }
     }
 
@@ -173,11 +186,14 @@ internal sealed class UpgradeMenu : IClickableMenu
                 {
                     sourceItem = item;
                     targetOption = null;
+                    ResetQuantityState();
                     hasRolledCurrentSelection = false;
                     isAnimatingRoulette = false;
                     rouletteAnimationTimer = 0f;
                     pendingSource = null;
                     pendingTarget = null;
+                    pendingSourceQuantity = 0;
+                    pendingOutputQuantity = 0;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -195,11 +211,14 @@ internal sealed class UpgradeMenu : IClickableMenu
                 if (option is not null)
                 {
                     targetOption = option;
+                    RefreshQuantityState();
                     hasRolledCurrentSelection = false;
                     isAnimatingRoulette = false;
                     rouletteAnimationTimer = 0f;
                     pendingSource = null;
                     pendingTarget = null;
+                    pendingSourceQuantity = 0;
+                    pendingOutputQuantity = 0;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -283,7 +302,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     }
 
     private bool HasUpgradeSelection => sourceItem is not null && targetOption is not null;
-    private bool CanUpgrade => HasUpgradeSelection && !hasRolledCurrentSelection;
+    private bool CanUpgrade => HasUpgradeSelection && availableQuantity >= sourceQuantity && !hasRolledCurrentSelection;
 
     private string GetChanceText()
     {
@@ -327,7 +346,15 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: source item is no longer in your inventory.";
                 sourceItem = null;
                 targetOption = null;
+                ResetQuantityState();
                 hasRolledCurrentSelection = false;
+                return;
+            }
+
+            RefreshQuantityState();
+            if (availableQuantity < sourceQuantity)
+            {
+                statusMessage = "Upgrade unavailable: not enough compatible source items remain.";
                 return;
             }
 
@@ -360,6 +387,8 @@ internal sealed class UpgradeMenu : IClickableMenu
             rouletteTargetAngle = RouletteWheel.CalculateTargetAngle(chance, success);
             pendingSource = source;
             pendingTarget = targetOption;
+            pendingSourceQuantity = sourceQuantity;
+            pendingOutputQuantity = outputQuantity;
             hasRolledCurrentSelection = true;
             isAnimatingRoulette = true;
             rouletteAnimationTimer = 0f;
@@ -378,10 +407,15 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         Item source = pendingSource;
         Item targetPreview = pendingTarget.PreviewItem;
+        int sourceQuantity = pendingSourceQuantity;
+        int outputQuantity = pendingOutputQuantity;
         pendingSource = null;
         pendingTarget = null;
+        pendingSourceQuantity = 0;
+        pendingOutputQuantity = 0;
 
-        UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview, rouletteResult);
+        UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview,
+            sourceQuantity, outputQuantity, rouletteResult);
         monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; "
             + $"target={targetPreview.QualifiedItemId}; chance={currentChance:0.####}; "
             + $"result={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
@@ -395,6 +429,7 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         sourceItem = null;
         targetOption = null;
+        ResetQuantityState();
         hasRolledCurrentSelection = false;
         statusMessage = rouletteResult ? "Upgrade successful!" : "Upgrade failed.";
         Game1.playSound(rouletteResult ? "discoverMineral" : "cancel");
@@ -404,6 +439,20 @@ internal sealed class UpgradeMenu : IClickableMenu
     {
         return sourceItem is { Stack: > 0 } source
             && Game1.player.Items.Any(item => ReferenceEquals(item, source));
+    }
+
+    private void ResetQuantityState()
+    {
+        sourceQuantity = 1;
+        outputQuantity = 1;
+        availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
+    }
+
+    private void RefreshQuantityState()
+    {
+        availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
+        if (availableQuantity > 0)
+            sourceQuantity = Math.Clamp(sourceQuantity, 1, availableQuantity);
     }
 
     private static bool IsTargetValid(Item? targetPreview)
@@ -426,6 +475,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         return status switch
         {
             UpgradeTransactionStatus.SourceMissing => "Upgrade unavailable: source item is no longer in your inventory.",
+            UpgradeTransactionStatus.InvalidQuantity => "Upgrade unavailable: invalid batch quantity.",
+            UpgradeTransactionStatus.InsufficientQuantity => "Upgrade unavailable: not enough compatible source items remain.",
             UpgradeTransactionStatus.InventoryFull => "Upgrade could not be completed: inventory is full.",
             UpgradeTransactionStatus.InvalidTarget => "Upgrade unavailable: target item is invalid.",
             UpgradeTransactionStatus.TransactionFailed => "Upgrade could not be completed safely.",
