@@ -22,6 +22,8 @@ internal sealed class InventoryIntegration
     private readonly Texture2D wheelArrow;
     private readonly Texture2D wheelCenter;
     private readonly Texture2D wheelFrame;
+    private float hiddenCursorTransparency;
+    private bool restoreCursor;
 
     public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues, UpgradeCalculator upgradeCalculator,
         UpgradeRoller upgradeRoller, UpgradeTransactionService transactionService)
@@ -42,6 +44,7 @@ internal sealed class InventoryIntegration
 
     public void RegisterEvents()
     {
+        helper.Events.Display.RenderingActiveMenu += OnRenderingActiveMenu;
         helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
@@ -57,8 +60,24 @@ internal sealed class InventoryIntegration
             : null;
     }
 
+    private void OnRenderingActiveMenu(object? sender, RenderingActiveMenuEventArgs e)
+    {
+        if (GetInventoryMenu() is null)
+            return;
+
+        hiddenCursorTransparency = Game1.mouseCursorTransparency;
+        Game1.mouseCursorTransparency = 0f;
+        restoreCursor = true;
+    }
+
     private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
+        if (!restoreCursor)
+            return;
+
+        Game1.mouseCursorTransparency = hiddenCursorTransparency;
+        restoreCursor = false;
+
         GameMenu? menu = GetInventoryMenu();
         if (menu is null)
             return;
@@ -66,6 +85,7 @@ internal sealed class InventoryIntegration
         UpgradeButton button = buttons.Value;
         button.UpdateLayout(menu);
         button.Draw(e.SpriteBatch, Game1.getMouseX(true), Game1.getMouseY(true), menu.readyToClose());
+        menu.drawMouse(e.SpriteBatch);
     }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
