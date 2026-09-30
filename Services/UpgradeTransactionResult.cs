@@ -4,6 +4,8 @@ public enum UpgradeTransactionStatus
 {
     Success,
     SourceMissing,
+    InvalidQuantity,
+    InsufficientQuantity,
     InventoryFull,
     InvalidTarget,
     TransactionFailed

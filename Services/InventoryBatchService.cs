@@ -31,6 +31,20 @@ public sealed class InventoryBatchService
             : new(InventoryBatchPlanStatus.SourceMissing, null);
     }
 
+    public InventoryBatchPlanResult PlanRemoval(Farmer player, Item sourceItem, int sourceQuantity)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+        ArgumentNullException.ThrowIfNull(sourceItem);
+
+        if (sourceQuantity < 1)
+            return new(InventoryBatchPlanStatus.InvalidQuantity, null);
+
+        List<InventoryBatchSlot> slots = BuildSlots(player, sourceItem, sourceItem, out bool sourcePresent);
+        return sourcePresent
+            ? planner.PlanRemoval(slots, sourceQuantity)
+            : new(InventoryBatchPlanStatus.SourceMissing, null);
+    }
+
     private static List<InventoryBatchSlot> BuildSlots(Farmer player, Item sourceItem, Item targetItem, out bool sourcePresent)
     {
         int targetStackSize = Math.Max(1, targetItem.maximumStackSize());

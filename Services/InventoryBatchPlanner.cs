@@ -31,29 +31,20 @@ public sealed class InventoryBatchPlanner
     {
         ArgumentNullException.ThrowIfNull(slots);
 
-        if (sourceQuantity < 1 || outputQuantity < 1)
+        if (outputQuantity < 1)
             return new(InventoryBatchPlanStatus.InvalidQuantity, null);
 
-        if (slots.Any(slot => slot.SourceQuantity < 0 || slot.OutputCapacity < 0 || slot.ReleasedOutputCapacity < 0))
-            throw new ArgumentOutOfRangeException(nameof(slots), "Inventory slot quantities and capacities cannot be negative.");
+        InventoryBatchPlanResult removalPlan = PlanRemoval(slots, sourceQuantity);
+        if (!removalPlan.IsSuccess || removalPlan.Plan is null)
+            return removalPlan;
 
-        int remainingSource = sourceQuantity;
-        var removals = new List<InventoryBatchRemoval>();
+        InventoryBatchPlan plan = removalPlan.Plan;
         var outputCapacities = slots.Select(slot => slot.OutputCapacity).ToArray();
-        for (int index = 0; index < slots.Count && remainingSource > 0; index++)
+        foreach (InventoryBatchRemoval removal in plan.SourceRemovals)
         {
-            int quantity = Math.Min(slots[index].SourceQuantity, remainingSource);
-            if (quantity == 0)
-                continue;
-
-            removals.Add(new(index, quantity));
-            remainingSource -= quantity;
-            if (quantity == slots[index].SourceQuantity)
-                outputCapacities[index] += slots[index].ReleasedOutputCapacity;
+            if (removal.Quantity == slots[removal.SlotIndex].SourceQuantity)
+                outputCapacities[removal.SlotIndex] += slots[removal.SlotIndex].ReleasedOutputCapacity;
         }
-
-        if (remainingSource > 0)
-            return new(InventoryBatchPlanStatus.InsufficientSource, null);
 
         int remainingOutput = outputQuantity;
         var insertions = new List<InventoryBatchInsertion>();
@@ -68,7 +59,35 @@ public sealed class InventoryBatchPlanner
         }
 
         return remainingOutput == 0
-            ? new(InventoryBatchPlanStatus.Success, new(removals, insertions))
+            ? new(InventoryBatchPlanStatus.Success, new(plan.SourceRemovals, insertions))
             : new(InventoryBatchPlanStatus.InsufficientOutputCapacity, null);
+    }
+
+    public InventoryBatchPlanResult PlanRemoval(IReadOnlyList<InventoryBatchSlot> slots, int sourceQuantity)
+    {
+        ArgumentNullException.ThrowIfNull(slots);
+
+        if (sourceQuantity < 1)
+            return new(InventoryBatchPlanStatus.InvalidQuantity, null);
+
+        if (slots.Any(slot => slot.SourceQuantity < 0 || slot.OutputCapacity < 0 || slot.ReleasedOutputCapacity < 0))
+            throw new ArgumentOutOfRangeException(nameof(slots), "Inventory slot quantities and capacities cannot be negative.");
+
+        int remainingSource = sourceQuantity;
+        var removals = new List<InventoryBatchRemoval>();
+        for (int index = 0; index < slots.Count && remainingSource > 0; index++)
+        {
+            int quantity = Math.Min(slots[index].SourceQuantity, remainingSource);
+            if (quantity == 0)
+                continue;
+
+            removals.Add(new(index, quantity));
+            remainingSource -= quantity;
+        }
+
+        if (remainingSource > 0)
+            return new(InventoryBatchPlanStatus.InsufficientSource, null);
+
+        return new(InventoryBatchPlanStatus.Success, new(removals, Array.Empty<InventoryBatchInsertion>()));
     }
 }

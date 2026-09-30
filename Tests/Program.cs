@@ -1,4 +1,5 @@
 using JojaDrop.Services;
+using StardewValley;
 
 var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
@@ -94,9 +95,68 @@ ExpectInventoryStatus(inventoryPlanner.Plan([new(1, 0, 5)], 1, 6),
     InventoryBatchPlanStatus.InsufficientOutputCapacity);
 ExpectInventoryStatus(inventoryPlanner.Plan([new(2, 0, 10)], 0, 1), InventoryBatchPlanStatus.InvalidQuantity);
 ExpectInventoryStatus(inventoryPlanner.Plan([new(2, 0, 10)], 1, 0), InventoryBatchPlanStatus.InvalidQuantity);
+ExpectInventoryPlan(inventoryPlanner.PlanRemoval([new(2, 0, 10), new(3, 0, 10)], 4),
+    [new(0, 2), new(1, 2)], []);
 
 ExpectInventoryPlan(inventoryPlanner.Plan([new(2, 0, 10)], 2, 1), [new(0, 2)], [new(0, 1)]);
 ExpectInventoryStatus(inventoryPlanner.Plan([new(1, 0, 10)], 2, 1), InventoryBatchPlanStatus.InsufficientSource);
+
+var transactionService = new UpgradeTransactionService();
+Item legacySource = new("source", 1);
+var legacyPlayer = new Farmer(1, legacySource);
+UpgradeTransactionResult legacyTransaction = transactionService.Apply(legacyPlayer, legacySource, new Item("target", 1), success: true);
+if (!legacyTransaction.IsSuccess || legacyPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 1 })
+    throw new InvalidOperationException("The legacy one-to-one transaction must consume the source and create one target.");
+
+Item sourceA = new("source", 2);
+Item sourceB = new("source", 3);
+var batchPlayer = new Farmer(3, sourceA, sourceB, null);
+UpgradeTransactionResult batchSuccess = transactionService.Apply(batchPlayer, sourceA, new Item("target", 1), 3, 2, success: true);
+if (!batchSuccess.IsSuccess || batchPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 2 } || sourceB.Stack != 2)
+    throw new InvalidOperationException("A successful batch transaction must consume q across stacks and create r targets.");
+
+Item failedSourceA = new("source", 2);
+Item failedSourceB = new("source", 3);
+var failedPlayer = new Farmer(2, failedSourceA, failedSourceB);
+UpgradeTransactionResult batchFailure = transactionService.Apply(failedPlayer, failedSourceA, targetPreview: null, 3, 4, success: false);
+if (!batchFailure.IsSuccess || failedPlayer.Items[0] is not null || failedSourceB.Stack != 2)
+    throw new InvalidOperationException("A failed batch transaction must consume q without requiring output capacity.");
+
+Item insufficientSource = new("source", 2);
+var insufficientPlayer = new Farmer(1, insufficientSource);
+if (transactionService.Apply(insufficientPlayer, insufficientSource, new Item("target", 1), 3, 1, success: true).Status
+    != UpgradeTransactionStatus.InsufficientQuantity || insufficientSource.Stack != 2)
+{
+    throw new InvalidOperationException("An insufficient source batch must not mutate inventory.");
+}
+
+Item fullSource = new("source", 3);
+var fullPlayer = new Farmer(2, fullSource, new Item("other", 999));
+if (transactionService.Apply(fullPlayer, fullSource, new Item("target", 1), 1, 1, success: true).Status
+    != UpgradeTransactionStatus.InventoryFull || fullSource.Stack != 3)
+{
+    throw new InvalidOperationException("A full inventory must reject the batch before source removal.");
+}
+
+Item invalidTargetSource = new("source", 2);
+var invalidTargetPlayer = new Farmer(1, invalidTargetSource);
+if (transactionService.Apply(invalidTargetPlayer, invalidTargetSource, targetPreview: null, 2, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidTarget || invalidTargetSource.Stack != 2)
+{
+    throw new InvalidOperationException("An invalid target must not mutate inventory.");
+}
+
+if (transactionService.Apply(new Farmer(1, new Item("source", 1)), new Item("source", 1), new Item("target", 1), 0, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidQuantity)
+{
+    throw new InvalidOperationException("Invalid batch quantities must return InvalidQuantity.");
+}
+
+if (transactionService.Apply(new Farmer(1, new Item("source", 1)), new Item("source", 1), new Item("target", 1), 1, 0, success: true).Status
+    != UpgradeTransactionStatus.InvalidQuantity)
+{
+    throw new InvalidOperationException("Invalid output quantities must return InvalidQuantity.");
+}
 
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
