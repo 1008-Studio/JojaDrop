@@ -398,6 +398,56 @@ if (transactionService.Apply(cheapTargetPlayer, cheapTargetSource, new Item("tar
     throw new InvalidOperationException("A target that cannot cover the source batch alone must be rejected without mutation.");
 }
 
+// Final flow: ten source items spread across three stacks must resolve to
+// exactly one selected target item of a single type.
+Item[] flowSources =
+[
+    new Item("source", 1) { Value = 10 },
+    new Item("source", 5) { Value = 10 },
+    new Item("source", 4) { Value = 10 }
+];
+var flowPlayer = new Farmer(4, flowSources[0], flowSources[1], flowSources[2], null);
+UpgradeTransactionResult flowSuccess = transactionService.Apply(flowPlayer, flowSources[0],
+    new Item("target", 1) { Value = 100 }, 10, 1, success: true);
+if (!flowSuccess.IsSuccess
+    || flowPlayer.Items.Count(item => item is { QualifiedItemId: "target", Stack: 1 }) != 1
+    || flowPlayer.Items.Any(item => item is not null && item.QualifiedItemId != "target"))
+{
+    throw new InvalidOperationException("A multi-stack source batch must yield exactly one target item.");
+}
+
+// The same flow failing consumes every source item and creates no output at all.
+Item[] flowFailureSources = [new Item("source", 5) { Value = 10 }, new Item("source", 5) { Value = 10 }];
+var flowFailurePlayer = new Farmer(2, flowFailureSources);
+UpgradeTransactionResult flowFailure = transactionService.Apply(flowFailurePlayer, flowFailureSources[0],
+    new Item("target", 1) { Value = 100 }, 10, 1, success: false);
+if (!flowFailure.IsSuccess || flowFailurePlayer.Items.Any(item => item is not null))
+    throw new InvalidOperationException("A failed flow must consume the whole batch and create no output.");
+
+// The single-output guard runs before target validation: r > 1 with a null target
+// reports InvalidQuantity, proving the invariant is checked first.
+if (transactionService.Apply(new Farmer(1, new Item("source", 1)), new Item("source", 1),
+        targetPreview: null, 1, 2, success: true).Status != UpgradeTransactionStatus.InvalidQuantity)
+{
+    throw new InvalidOperationException("The single-output guard must run before target validation.");
+}
+
+// Single-output chance/validity math: one target item must cover the whole source
+// batch, so the chance is q * S / T and never has to be clamped by extra outputs.
+foreach ((int sourceCount, int sourceValue, int targetValue, bool valid, double chance) in new[]
+{
+    (1, 10, 1000, true, 0.01),
+    (10, 10, 1000, true, 0.1),
+    (100, 10, 1000, true, 1d),
+    (101, 10, 1000, false, 1d)
+})
+{
+    bool actualValid = calculator.IsBatchTargetValueValid(sourceCount, 1, sourceValue, targetValue);
+    double actualChance = calculator.CalculateChance(sourceCount, 1, sourceValue, targetValue);
+    if (actualValid != valid || Math.Abs(actualChance - chance) > 1e-12)
+        throw new InvalidOperationException($"Unexpected single-output math for {sourceCount}x{sourceValue} -> 1x{targetValue}.");
+}
+
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
 {
     try
