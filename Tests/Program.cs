@@ -7,6 +7,7 @@ var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
 var acquisitionIndexer = new AcquisitionProfileIndexer();
 var pointsEngine = new PointsValuationEngine();
+var finalPointsCalculator = new FinalPointsCalculator();
 
 // Final-price inputs are a separate, immutable production graph. This is intentionally
 // not wired into acquisition valuation or gameplay until the calculator stage.
@@ -31,6 +32,128 @@ ExpectModelException(() => new ProductionRecipe(" ", [new ProductionIngredient("
     new ProductionOutput("(O)Bar", 1)));
 ExpectModelException(() => new ProductionRecipe("Data/CraftingRecipes:Bar", Array.Empty<ProductionIngredient>(),
     new ProductionOutput("(O)Bar", 1)));
+
+// Final points P(x) are a pure recursive layer over intrinsic points U(x).
+FinalPriceResult rawFinalPoints = finalPointsCalculator.Calculate("(O)A", new Dictionary<string, int>
+{
+    ["(O)A"] = 1000
+}, Array.Empty<ProductionRecipe>());
+if (rawFinalPoints.UniquePoints != 1000 || rawFinalPoints.Points != 1000 || rawFinalPoints.BestRecipe is not null)
+    throw new InvalidOperationException("An item without a recipe must retain its intrinsic points.");
+
+var tenAtoB = new ProductionRecipe("Data/CraftingRecipes:B", [new ProductionIngredient("(O)A", 10)],
+    new ProductionOutput("(O)B", 1));
+FinalPriceResult craftedB = finalPointsCalculator.Calculate("(O)B", new Dictionary<string, int>
+{
+    ["(O)A"] = 100,
+    ["(O)B"] = 200
+}, [tenAtoB]);
+if (craftedB.RecipeInputCost != 1000d || craftedB.CraftFloor != 900d || craftedB.Points != 900
+    || craftedB.BestRecipe != tenAtoB)
+{
+    throw new InvalidOperationException("Craft floors must retain 90% of recursive input points.");
+}
+
+if (finalPointsCalculator.Calculate("(O)B", new Dictionary<string, int> { ["(O)A"] = 100, ["(O)B"] = 2000 },
+        [tenAtoB]).Points != 2000)
+{
+    throw new InvalidOperationException("Intrinsic points must remain a floor above a cheaper craft route.");
+}
+
+var barFromOre = new ProductionRecipe("Data/Machines:Furnace", [new ProductionIngredient("(O)Ore", 10)],
+    new ProductionOutput("(O)Bar", 1));
+var partFromBar = new ProductionRecipe("Data/CraftingRecipes:Part", [new ProductionIngredient("(O)Bar", 1)],
+    new ProductionOutput("(O)Part", 1));
+if (finalPointsCalculator.Calculate("(O)Part", new Dictionary<string, int>
+    {
+        ["(O)Ore"] = 100,
+        ["(O)Bar"] = 10,
+        ["(O)Part"] = 1
+    }, [barFromOre, partFromBar]).Points != 810)
+{
+    throw new InvalidOperationException("A production chain must use P(subitem), not U(subitem).");
+}
+
+var fiveOutput = new ProductionRecipe("Data/CraftingRecipes:Five", [new ProductionIngredient("(O)A", 1)],
+    new ProductionOutput("(O)Five", 5));
+if (finalPointsCalculator.Calculate("(O)Five", new Dictionary<string, int> { ["(O)A"] = 1000, ["(O)Five"] = 1 },
+        [fiveOutput]).Points != 180)
+{
+    throw new InvalidOperationException("Multi-output recipes must divide retained input points across every output.");
+}
+
+var expensiveRecipe = new ProductionRecipe("Data/CraftingRecipes:Expensive", [new ProductionIngredient("(O)Expensive", 1)],
+    new ProductionOutput("(O)Choice", 1));
+var cheapRecipe = new ProductionRecipe("Data/CraftingRecipes:Cheap", [new ProductionIngredient("(O)Cheap", 1)],
+    new ProductionOutput("(O)Choice", 1));
+FinalPriceResult cheapestChoice = finalPointsCalculator.Calculate("(O)Choice", new Dictionary<string, int>
+{
+    ["(O)Expensive"] = 1000,
+    ["(O)Cheap"] = 600,
+    ["(O)Choice"] = 100
+}, [expensiveRecipe, cheapRecipe]);
+if (cheapestChoice.Points != 540 || cheapestChoice.BestRecipe != cheapRecipe)
+    throw new InvalidOperationException("Final points must select the cheapest valid recipe before applying the intrinsic floor.");
+
+var cycleARecipe = new ProductionRecipe("Cycle:A", [new ProductionIngredient("(O)CycleB", 1)],
+    new ProductionOutput("(O)CycleA", 1));
+var cycleBRecipe = new ProductionRecipe("Cycle:B", [new ProductionIngredient("(O)CycleC", 1)],
+    new ProductionOutput("(O)CycleB", 1));
+var cycleCRecipe = new ProductionRecipe("Cycle:C", [new ProductionIngredient("(O)CycleA", 1)],
+    new ProductionOutput("(O)CycleC", 1));
+var cycleDiagnostics = new List<string>();
+if (finalPointsCalculator.Calculate("(O)CycleA", new Dictionary<string, int>
+    {
+        ["(O)CycleA"] = 100,
+        ["(O)CycleB"] = 100,
+        ["(O)CycleC"] = 100
+    }, [cycleARecipe, cycleBRecipe, cycleCRecipe], cycleDiagnostics.Add).Points != 100
+    || !cycleDiagnostics.Any(message => message.Contains("cycle", StringComparison.OrdinalIgnoreCase)))
+{
+    throw new InvalidOperationException("Cyclic production branches must terminate at intrinsic points with a diagnostic.");
+}
+
+var bFromD = new ProductionRecipe("Memo:B", [new ProductionIngredient("(O)D", 1)], new ProductionOutput("(O)B", 1));
+var cFromD = new ProductionRecipe("Memo:C", [new ProductionIngredient("(O)D", 1)], new ProductionOutput("(O)C", 1));
+var aFromBandC = new ProductionRecipe("Memo:A", [new ProductionIngredient("(O)B", 1), new ProductionIngredient("(O)C", 1)],
+    new ProductionOutput("(O)A", 1));
+var lookupCount = new Dictionary<string, int>(StringComparer.Ordinal);
+int? CountedIntrinsicPoints(string id)
+{
+    lookupCount[id] = lookupCount.GetValueOrDefault(id) + 1;
+    return new Dictionary<string, int>
+    {
+        ["(O)A"] = 1,
+        ["(O)B"] = 1,
+        ["(O)C"] = 1,
+        ["(O)D"] = 100
+    }.TryGetValue(id, out int value) ? value : null;
+}
+
+if (finalPointsCalculator.Calculate("(O)A", CountedIntrinsicPoints, [aFromBandC, bFromD, cFromD]).Points != 162
+    || lookupCount.GetValueOrDefault("(O)D") != 3)
+{
+    throw new InvalidOperationException("A shared recursive dependency must be memoized within one calculation.");
+}
+
+var missingRecipeInputDiagnostics = new List<string>();
+if (finalPointsCalculator.Calculate("(O)MissingResult", new Dictionary<string, int> { ["(O)MissingResult"] = 42 },
+        [new ProductionRecipe("Missing", [new ProductionIngredient("(O)MissingInput", 1)],
+            new ProductionOutput("(O)MissingResult", 1))], missingRecipeInputDiagnostics.Add).Points != 42
+    || !missingRecipeInputDiagnostics.Any(message => message.Contains("unavailable", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Unknown recipe inputs must safely preserve intrinsic points.");
+}
+
+if (finalPointsCalculator.Calculate("(O)Large", new Dictionary<string, int>
+    {
+        ["(O)Large"] = 0,
+        ["(O)HugeInput"] = int.MaxValue
+    }, [new ProductionRecipe("Large", [new ProductionIngredient("(O)HugeInput", int.MaxValue)],
+        new ProductionOutput("(O)Large", 1))]).Points != int.MaxValue)
+{
+    throw new InvalidOperationException("Large recipe arithmetic must remain bounded at the JojaDrop points limit.");
+}
 
 // Acquisition profiles stay pure domain data: every route is evidenced and an
 // item may retain independent routes instead of being forced into one source type.
