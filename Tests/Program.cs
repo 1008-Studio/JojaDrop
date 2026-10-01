@@ -9,6 +9,7 @@ var acquisitionIndexer = new AcquisitionProfileIndexer();
 var pointsEngine = new PointsValuationEngine();
 var finalPointsCalculator = new FinalPointsCalculator();
 var productionRecipeExtractor = new ProductionRecipeExtractor();
+var finalPointsCache = new FinalPointsCache();
 
 // Final-price inputs are a separate, immutable production graph. This is intentionally
 // not wired into acquisition valuation or gameplay until the calculator stage.
@@ -166,6 +167,14 @@ if (finalPointsCalculator.Calculate("(O)Large", new Dictionary<string, int>
         new ProductionOutput("(O)Large", 1))]).Points != int.MaxValue)
 {
     throw new InvalidOperationException("Large recipe arithmetic must remain bounded at the JojaDrop points limit.");
+
+var cacheRecipe = new ProductionRecipe("Cache", [new ProductionIngredient("(O)Input", 1)], new ProductionOutput("(O)Output", 1));
+if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 100, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 90
+    || finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 200, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 90)
+    throw new InvalidOperationException("Final points must remain stable for one resolved-data snapshot.");
+finalPointsCache.Invalidate();
+if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 200, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 180)
+    throw new InvalidOperationException("Invalidating final points must rebuild dependent valuations.");
 }
 
 // Acquisition profiles stay pure domain data: every route is evidenced and an

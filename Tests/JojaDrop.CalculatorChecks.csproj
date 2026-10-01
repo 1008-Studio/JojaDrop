@@ -16,6 +16,7 @@
     <Compile Include="../Services/PointsValuationEngine.cs" Link="PointsValuationEngine.cs" />
     <Compile Include="../Services/FinalPointsCalculator.cs" Link="FinalPointsCalculator.cs" />
     <Compile Include="../Services/ProductionRecipeExtractor.cs" Link="ProductionRecipeExtractor.cs" />
+    <Compile Include="../Services/FinalPointsCache.cs" Link="FinalPointsCache.cs" />
     <Compile Include="../Services/ValuationSimulationExporter.cs" Link="ValuationSimulationExporter.cs" />
     <Compile Include="../Models/TargetFilterMode.cs" Link="TargetFilterMode.cs" />
     <Compile Include="../Services/TargetProbabilityFilter.cs" Link="TargetProbabilityFilter.cs" />
