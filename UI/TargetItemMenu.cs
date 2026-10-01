@@ -31,6 +31,9 @@ internal sealed class TargetItemMenu : IClickableMenu
     private const int CloseId = 902;
 
     private readonly IReadOnlyList<TargetItemOption> targetOptions;
+    /// <summary>The options rendered by the grid. Until a search filter is applied this is
+    /// exactly <see cref="targetOptions"/>, so pagination and drawing keep their current behaviour.</summary>
+    private IReadOnlyList<TargetItemOption> visibleOptions;
     private readonly TargetFilterMode filter;
     private readonly List<ClickableComponent> slots = new();
     private ClickableComponent previousButton = null!;
@@ -42,13 +45,14 @@ internal sealed class TargetItemMenu : IClickableMenu
     private int pageSize;
     private int page;
 
-    private int PageCount => Math.Max(1, (targetOptions.Count + pageSize - 1) / pageSize);
+    private int PageCount => Math.Max(1, (visibleOptions.Count + pageSize - 1) / pageSize);
 
     public TargetItemMenu(IReadOnlyList<TargetItemOption> targetOptions, Action<TargetItemOption?> onClosed,
         TargetFilterMode filter = TargetFilterMode.All)
     {
         this.targetOptions = targetOptions ?? throw new ArgumentNullException(nameof(targetOptions));
         ArgumentNullException.ThrowIfNull(onClosed);
+        visibleOptions = targetOptions;
         this.filter = filter;
         exitFunction = () => onClosed(selectedOption);
         UpdateLayout();
@@ -68,7 +72,7 @@ internal sealed class TargetItemMenu : IClickableMenu
         slots.Clear();
 
         int gridLeft = xPositionOnScreen + (width - columns * MenuDrawing.SlotSize) / 2;
-        int count = Math.Min(pageSize, targetOptions.Count - page * pageSize);
+        int count = Math.Min(pageSize, visibleOptions.Count - page * pageSize);
         for (int i = 0; i < count; i++)
         {
             slots.Add(new ClickableComponent(new Rectangle(gridLeft + i % columns * MenuDrawing.SlotSize,
@@ -186,7 +190,7 @@ internal sealed class TargetItemMenu : IClickableMenu
         UpdateLayout();
     }
 
-    private TargetItemOption GetOption(int slotIndex) => targetOptions[page * pageSize + slotIndex];
+    private TargetItemOption GetOption(int slotIndex) => visibleOptions[page * pageSize + slotIndex];
 
     public override void performHoverAction(int x, int y)
     {
@@ -213,7 +217,7 @@ internal sealed class TargetItemMenu : IClickableMenu
             : $"Showing targets with ~{TargetProbabilityFilter.GetChanceText(filter)} upgrade chance.";
         MenuDrawing.CenteredText(b, MenuDrawing.FitText(instruction, width - ContentPadding * 2),
             centerX, yPositionOnScreen + InstructionOffset);
-        if (targetOptions.Count == 0)
+        if (visibleOptions.Count == 0)
         {
             MenuDrawing.CenteredText(b, filter == TargetFilterMode.All
                     ? "No target items available."
