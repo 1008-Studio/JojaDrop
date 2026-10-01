@@ -36,8 +36,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int FilterIdOffset = 108;
     private const int FilterButtonSize = 36;
     private const int FilterButtonGap = 4;
-    private const int FilterButtonSlotGap = 24;
-    private const int FilterButtonBottomGap = 4;
     private const int FilterButtonTextPadding = 4;
     private const int FilterButtonTextReferenceWidth = 30;
     private static readonly TargetFilterMode[] FilterModes =
@@ -135,31 +133,30 @@ internal sealed class UpgradeMenu : IClickableMenu
         sourceDecreaseButton.upNeighborID = sourceIncreaseButton.upNeighborID = SourceId;
         sourceDecreaseButton.downNeighborID = sourceIncreaseButton.downNeighborID = UpgradeId;
 
-        // Compact probability filter buttons stacked vertically to the right of the Target Item
-        // slot. The stack ends just under the slot, above the item name/value lines, so it never
-        // covers them (their width can reach far right of the slot).
+        // Keep the filter row under the target's name and value, centred on its slot.
         int filterSize = Scale(FilterButtonSize);
-        int filterStep = Scale(FilterButtonSize + FilterButtonGap);
-        int filterHeight = filterButtons.Length * filterStep - Scale(FilterButtonGap);
-        int filterLeft = targetSlot.bounds.Right + Scale(FilterButtonSlotGap);
-        int filterTop = slotTop + slotSize + Scale(FilterButtonBottomGap) - filterHeight;
+        int filterGap = Scale(FilterButtonGap);
+        int filterWidth = filterButtons.Length * filterSize + (filterButtons.Length - 1) * filterGap;
+        int filterLeft = targetSlot.bounds.Center.X - filterWidth / 2;
+        int filterTop = targetSlot.bounds.Bottom + Scale(72);
         for (int i = 0; i < filterButtons.Length; i++)
         {
             int id = FilterIdOffset + i;
             filterButtons[i] = new ClickableComponent(
-                new Rectangle(filterLeft, filterTop + i * filterStep, filterSize, filterSize), FilterLabels[i])
+                new Rectangle(filterLeft + i * (filterSize + filterGap), filterTop, filterSize, filterSize), FilterLabels[i])
             {
                 myID = id,
-                leftNeighborID = TargetId,
-                upNeighborID = i == 0 ? CloseId : id - 1,
-                downNeighborID = i == filterButtons.Length - 1 ? UpgradeId : id + 1
+                leftNeighborID = i == 0 ? TargetId : id - 1,
+                rightNeighborID = i == filterButtons.Length - 1 ? CloseId : id + 1,
+                upNeighborID = TargetId,
+                downNeighborID = UpgradeId
             };
         }
 
         initializeUpperRightCloseButton();
         upperRightCloseButton.myID = CloseId;
         upperRightCloseButton.leftNeighborID = TargetId;
-        upperRightCloseButton.downNeighborID = FilterIdOffset;
+        upperRightCloseButton.downNeighborID = TargetId;
         allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, sourceDecreaseButton, sourceIncreaseButton,
             upgradeButton, upperRightCloseButton };
         allClickableComponents.AddRange(filterButtons);
