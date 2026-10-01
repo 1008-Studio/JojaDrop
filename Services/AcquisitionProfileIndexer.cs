@@ -138,7 +138,9 @@ public sealed class AcquisitionProfileIndexer
                 AcquisitionConfidence.High,
                 new[] { new AcquisitionEvidence("Data/Machines",
                     $"machine={production.MachineItemId}; input={FormatInputs(production.Inputs)}; output={production.MinOutput}-{production.MaxOutput}; "
-                    + $"minutes={production.MinutesUntilReady}; days={production.DaysUntilReady}", production.Condition) }));
+                    + $"minutes={production.MinutesUntilReady}; days={production.DaysUntilReady}", production.Condition) },
+                new ProductionRelationship(production.Inputs, production.MinOutput, production.MaxOutput,
+                    production.IsRandomOutput, production.HasCustomOutputMethod)));
         }
     }
 
@@ -151,7 +153,8 @@ public sealed class AcquisitionProfileIndexer
                     RestrictionCount(recipe.UnlockCondition, null, null, recipe.Inputs.Count > 1, false), null, null),
                 AcquisitionConfidence.High,
                 new[] { new AcquisitionEvidence(recipe.Kind == AcquisitionKind.Crafting ? "Data/CraftingRecipes" : "Data/CookingRecipes",
-                    $"recipe={recipe.RecipeId}; input={FormatInputs(recipe.Inputs)}; output={recipe.OutputQuantity}", recipe.UnlockCondition) }));
+                    $"recipe={recipe.RecipeId}; input={FormatInputs(recipe.Inputs)}; output={recipe.OutputQuantity}", recipe.UnlockCondition) },
+                new ProductionRelationship(recipe.Inputs, recipe.OutputQuantity, recipe.OutputQuantity)));
         }
     }
 

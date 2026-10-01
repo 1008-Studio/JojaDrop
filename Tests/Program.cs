@@ -154,13 +154,15 @@ if (geodeResult.Routes.Single().Kind != AcquisitionKind.Geode || geodeResult.Rou
 AcquisitionProfile machineResult = acquisitionIndexer.Build("(O)334", extendedData);
 AcquisitionRoute machineRoute = machineResult.Routes.Single(route => route.Kind == AcquisitionKind.Machine);
 if (machineRoute.Metrics.Effort != 12 || !machineRoute.Evidence.Single().Detail.Contains("(O)378 x5", StringComparison.Ordinal)
-    || machineRoute.Evidence.Single().Condition is null)
+    || machineRoute.Evidence.Single().Condition is null || machineRoute.Production?.Inputs.Single().Quantity != 5
+    || machineRoute.Production.ExpectedOutput != 1d)
 {
-    throw new InvalidOperationException("Machine routes must retain input quantity, output quantity, processing time, and conditions.");
+    throw new InvalidOperationException("Machine routes must retain input quantity, output quantity, processing time, conditions, and static production facts.");
 }
 
 AcquisitionProfile craftingResult = acquisitionIndexer.Build("(O)334", extendedData);
-if (craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Evidence.Single().Detail.Contains("(O)378 x5") != true)
+if (craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Evidence.Single().Detail.Contains("(O)378 x5") != true
+    || craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Production?.ExpectedOutput != 1d)
     throw new InvalidOperationException("Crafting routes must retain recipe dependencies without recursively valuing them.");
 
 AcquisitionProfile cookingResult = acquisitionIndexer.Build("(O)610", extendedData);
@@ -243,6 +245,74 @@ if (hugeBase.Points != int.MaxValue || hugeBase.Routes.Any(route => double.IsNaN
 
 ExpectPointsException(-0.01d);
 ExpectPointsException(1.01d);
+
+// Production routes may increase a product to its static input cost, but a separate
+// legitimate route may still be cheaper. Dynamic or incomplete recipes stay visible
+// without fabricating a dependency value.
+var oreProfile = new AcquisitionProfile("(O)Ore", [new AcquisitionRoute(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "ore shop")])]);
+var barProfile = new AcquisitionProfile("(O)Bar", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 40, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "five ore to one bar")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 5)], 1, 1))]);
+ValuationBreakdown barValue = pointsEngine.Evaluate(barProfile, 50, [new ValuationInput(oreProfile, 20)]);
+RouteValuationBreakdown barRouteValue = barValue.Routes.Single();
+if (barRouteValue.ProductionFloor != 100 || barRouteValue.ProductionMultiplier <= 1d || barValue.Points <= 100)
+    throw new InvalidOperationException("An ore-to-bar route must include the input-cost production floor and bounded processing cost.");
+
+var fruitProfile = new AcquisitionProfile("(O)Fruit", [new AcquisitionRoute(AcquisitionKind.Farming,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "fruit")])]);
+var wineProfile = new AcquisitionProfile("(O)Wine", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 60, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "fruit to wine")],
+    new ProductionRelationship([new ProductionInput("(O)Fruit", 1)], 1, 1))]);
+if (pointsEngine.Evaluate(wineProfile, 1, [new ValuationInput(fruitProfile, 10)]).Points <= 10)
+    throw new InvalidOperationException("A wine-like machine product must not be cheaper than its fruit input.");
+
+var multiOutputProfile = new AcquisitionProfile("(O)Bolts", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 20, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "six ore to two bolts")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 6)], 2, 2))]);
+RouteValuationBreakdown multiOutputRoute = pointsEngine.Evaluate(multiOutputProfile, 1,
+    [new ValuationInput(oreProfile, 20)]).Routes.Single();
+if (multiOutputRoute.ProductionFloor != 60)
+    throw new InvalidOperationException("A multi-output recipe must divide static input cost by its deterministic output quantity.");
+
+var cycleA = new AcquisitionProfile("(O)CycleA", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "cycle A")], new ProductionRelationship([new ProductionInput("(O)CycleB", 1)], 1, 1))]);
+var cycleB = new AcquisitionProfile("(O)CycleB", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "cycle B")], new ProductionRelationship([new ProductionInput("(O)CycleA", 1)], 1, 1))]);
+if (pointsEngine.Evaluate(cycleA, 10, [new ValuationInput(cycleB, 10)]).Points != 10)
+    throw new InvalidOperationException("Cyclic recipes must terminate without inventing a cheaper recursive value.");
+
+var missingIngredientProfile = new AcquisitionProfile("(O)MissingIngredientProduct", [new AcquisitionRoute(AcquisitionKind.Cooking,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "missing input")], new ProductionRelationship([new ProductionInput("(O)Absent", 1)], 1, 1))]);
+RouteValuationBreakdown missingIngredientRoute = pointsEngine.Evaluate(missingIngredientProfile, 25).Routes.Single();
+if (missingIngredientRoute.ProductionFloor.HasValue || !missingIngredientRoute.ProductionReason!.Contains("Missing", StringComparison.Ordinal))
+    throw new InvalidOperationException("A missing production input must remain partial and must not throw.");
+
+var alternateRouteProfile = new AcquisitionProfile("(O)Alternate", [
+    new AcquisitionRoute(AcquisitionKind.Machine, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "expensive production")], new ProductionRelationship([new ProductionInput("(O)Ore", 5)], 1, 1)),
+    new AcquisitionRoute(AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "legitimate cheap shop")])
+]);
+if (pointsEngine.Evaluate(alternateRouteProfile, 10, [new ValuationInput(oreProfile, 20)]).Points != 10)
+    throw new InvalidOperationException("A legitimate cheaper alternate route must be allowed to determine final points.");
+
+var dynamicOutputProfile = new AcquisitionProfile("(O)Dynamic", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "custom output method")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 1)], 1, 1, hasCustomOutputMethod: true))]);
+RouteValuationBreakdown dynamicOutputRoute = pointsEngine.Evaluate(dynamicOutputProfile, 25,
+    [new ValuationInput(oreProfile, 20)]).Routes.Single();
+if (dynamicOutputRoute.ProductionFloor.HasValue || !dynamicOutputRoute.ProductionReason!.Contains("Random or custom", StringComparison.Ordinal))
+    throw new InvalidOperationException("Random or custom machine output must not receive an invented deterministic floor.");
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;

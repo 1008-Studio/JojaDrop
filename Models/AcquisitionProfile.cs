@@ -93,11 +93,40 @@ public sealed record AcquisitionEvidence
     public string? Condition { get; }
 }
 
+/// <summary>Static production facts for one output route; dynamic outputs intentionally have no expected output.</summary>
+public sealed record ProductionRelationship
+{
+    public ProductionRelationship(IEnumerable<ProductionInput> inputs, int minOutput, int maxOutput,
+        bool isRandomOutput = false, bool hasCustomOutputMethod = false)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        if (minOutput < 1 || maxOutput < minOutput)
+            throw new ArgumentOutOfRangeException(nameof(minOutput), "Production output must be positive and ordered.");
+
+        ProductionInput[] inputItems = inputs.ToArray();
+        if (inputItems.Any(input => input is null || input.Quantity < 1 || string.IsNullOrWhiteSpace(input.ItemId)))
+            throw new ArgumentException("Production inputs must have an item ID and positive quantity.", nameof(inputs));
+
+        Inputs = new ReadOnlyCollection<ProductionInput>(inputItems);
+        MinOutput = minOutput;
+        MaxOutput = maxOutput;
+        IsRandomOutput = isRandomOutput;
+        HasCustomOutputMethod = hasCustomOutputMethod;
+    }
+
+    public IReadOnlyList<ProductionInput> Inputs { get; }
+    public int MinOutput { get; }
+    public int MaxOutput { get; }
+    public bool IsRandomOutput { get; }
+    public bool HasCustomOutputMethod { get; }
+    public double? ExpectedOutput => IsRandomOutput || HasCustomOutputMethod ? null : (MinOutput + MaxOutput) / 2d;
+}
+
 /// <summary>One evidenced way to acquire an item. Profiles may contain many routes.</summary>
 public sealed record AcquisitionRoute
 {
     public AcquisitionRoute(AcquisitionKind kind, AcquisitionMetrics metrics, AcquisitionConfidence confidence,
-        IEnumerable<AcquisitionEvidence> evidence)
+        IEnumerable<AcquisitionEvidence> evidence, ProductionRelationship? production = null)
     {
         if (!Enum.IsDefined(typeof(AcquisitionKind), kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
@@ -116,12 +145,14 @@ public sealed record AcquisitionRoute
         Metrics = metrics;
         Confidence = confidence;
         Evidence = new ReadOnlyCollection<AcquisitionEvidence>(evidenceItems);
+        Production = production;
     }
 
     public AcquisitionKind Kind { get; }
     public AcquisitionMetrics Metrics { get; }
     public AcquisitionConfidence Confidence { get; }
     public IReadOnlyList<AcquisitionEvidence> Evidence { get; }
+    public ProductionRelationship? Production { get; }
 }
 
 /// <summary>All known, independently evidenced acquisition routes for one qualified item ID.</summary>
@@ -148,7 +179,25 @@ public sealed record AcquisitionProfile
 /// <summary>Per-route details from a deterministic points valuation.</summary>
 public sealed record RouteValuationBreakdown(AcquisitionRoute Route, double Difficulty, double Scarcity,
     double Access, double Effort, double Restrictions, double Uniqueness, double Farmability, double Score,
-    double Multiplier, int Points, bool IsReliable);
+    double Multiplier, int Points, bool IsReliable, int? ProductionFloor = null,
+    double? ProductionMultiplier = null, string? ProductionReason = null);
+
+/// <summary>One canonical base value and profile available to production dependency resolution.</summary>
+public sealed record ValuationInput
+{
+    public ValuationInput(AcquisitionProfile profile, int canonicalBaseValue)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (canonicalBaseValue < 0)
+            throw new ArgumentOutOfRangeException(nameof(canonicalBaseValue));
+
+        Profile = profile;
+        CanonicalBaseValue = canonicalBaseValue;
+    }
+
+    public AcquisitionProfile Profile { get; }
+    public int CanonicalBaseValue { get; }
+}
 
 /// <summary>A deterministic points result and its route-level calculation.</summary>
 public sealed record ValuationBreakdown

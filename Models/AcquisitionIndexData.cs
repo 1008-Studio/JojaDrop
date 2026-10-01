@@ -44,7 +44,8 @@ public sealed record GeodeDrop(string GeodeItemId, string ItemId, double? Chance
 public sealed record ProductionInput(string ItemId, int Quantity, bool IsCategory = false);
 
 public sealed record MachineProduction(string MachineItemId, IReadOnlyList<ProductionInput> Inputs, string ItemId,
-    int MinOutput, int MaxOutput, int MinutesUntilReady, int DaysUntilReady, string? Condition);
+    int MinOutput, int MaxOutput, int MinutesUntilReady, int DaysUntilReady, string? Condition,
+    bool IsRandomOutput = false, bool HasCustomOutputMethod = false);
 
 public sealed record RecipeProduction(AcquisitionKind Kind, string RecipeId, IReadOnlyList<ProductionInput> Inputs,
     string ItemId, int OutputQuantity, string? UnlockCondition);

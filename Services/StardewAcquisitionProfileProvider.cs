@@ -101,7 +101,8 @@ public sealed class StardewAcquisitionProfileProvider
                     continue;
 
                 yield return new MachineProduction(QualifyObjectId(machineItemId), inputs, outputId, output.MinStack,
-                    output.MaxStack, rule.MinutesUntilReady, rule.DaysUntilReady, JoinConditions(triggerCondition, output.Condition));
+                    output.MaxStack, rule.MinutesUntilReady, rule.DaysUntilReady, JoinConditions(triggerCondition, output.Condition),
+                    IsRandomOutput: output.RandomItemId?.Count > 0);
             }
         }
     }
