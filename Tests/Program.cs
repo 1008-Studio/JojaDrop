@@ -185,6 +185,20 @@ if (candidateChances.Count(chance => TargetProbabilityFilter.Matches(TargetFilte
     throw new InvalidOperationException("The probability filter must only narrow the existing candidate list.");
 }
 
+// The filtered pipeline output stays an ordered subset of the unfiltered output
+// (candidates sorted by value ascending, exactly like TargetItemProvider caches them).
+int[] candidateValues = [50, 150, 200, 250, 500, 1000];
+double[] sortedCandidateChances = candidateValues
+    .Select(value => calculator.CalculateChance(100, value))
+    .ToArray();
+ExpectFilteredSequence(TargetFilterMode.All, sortedCandidateChances, [1d, 4d / 6, 0.5, 0.4, 0.2, 0.1]);
+ExpectFilteredSequence(TargetFilterMode.X2, sortedCandidateChances, [0.5, 0.4]);
+ExpectFilteredSequence(TargetFilterMode.X3, sortedCandidateChances, [0.4]);
+ExpectFilteredSequence(TargetFilterMode.X5, sortedCandidateChances, [0.2]);
+ExpectFilteredSequence(TargetFilterMode.X10, sortedCandidateChances, [0.1]);
+ExpectFilteredSequence(TargetFilterMode.X5, [0.5, 0.4], []);
+ExpectFilteredSequence(TargetFilterMode.X2, [], []);
+
 // Display text used by the UI tooltips.
 if (TargetProbabilityFilter.GetChanceText(TargetFilterMode.X2) != "50%"
     || TargetProbabilityFilter.GetChanceText(TargetFilterMode.X3) != "33%"
@@ -355,6 +369,13 @@ void ExpectFilter(TargetFilterMode mode, double chance, bool expected)
     bool actual = TargetProbabilityFilter.Matches(mode, chance);
     if (actual != expected)
         throw new InvalidOperationException($"Filter {mode} for chance {chance:R}: expected {expected}, got {actual}.");
+}
+
+void ExpectFilteredSequence(TargetFilterMode mode, double[] chances, double[] expected)
+{
+    double[] actual = chances.Where(chance => TargetProbabilityFilter.Matches(mode, chance)).ToArray();
+    if (!actual.SequenceEqual(expected))
+        throw new InvalidOperationException($"Unexpected {mode} candidate list: [{string.Join(", ", actual)}].");
 }
 
 void ExpectRollException(double chance)

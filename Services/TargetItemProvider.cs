@@ -23,8 +23,8 @@ public sealed class TargetItemProvider
         this.monitor = monitor;
     }
 
-    /// <summary>Get preview-only targets with a positive value.</summary>
-    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem)
+    /// <summary>Get preview-only targets with a positive value, optionally narrowed by upgrade probability.</summary>
+    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem, TargetFilterMode filterMode = TargetFilterMode.All)
     {
         ArgumentNullException.ThrowIfNull(sourceItem);
 
@@ -32,14 +32,20 @@ public sealed class TargetItemProvider
         if (!sourceValue.HasValue || sourceValue.Value <= 0)
             return Array.Empty<TargetItemOption>();
 
-        return GetCachedTargets()
+        IEnumerable<TargetItemOption> options = GetCachedTargets()
             .Where(target => target.Value > 0)
             .Select(target => new TargetItemOption(
                 target.PreviewItem,
                 target.Value,
                 upgradeCalculator.CalculateChance(sourceValue.Value, target.Value),
-                (double)target.Value / sourceValue.Value))
-            .ToArray();
+                (double)target.Value / sourceValue.Value));
+
+        // The probability filter only narrows the existing candidate list; validity rules,
+        // sorting and the unfiltered All mode stay exactly as before.
+        if (filterMode != TargetFilterMode.All)
+            options = options.Where(option => TargetProbabilityFilter.Matches(filterMode, option.BaseChance));
+
+        return options.ToArray();
     }
 
     /// <summary>Discard the cached game-data scan, for example after object data is invalidated.</summary>
