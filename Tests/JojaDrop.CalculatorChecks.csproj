@@ -11,6 +11,7 @@
     <Compile Include="../Models/AcquisitionProfile.cs" Link="AcquisitionProfile.cs" />
     <Compile Include="../Services/AcquisitionProfileIndexer.cs" Link="AcquisitionProfileIndexer.cs" />
     <Compile Include="../Services/PointsValuationEngine.cs" Link="PointsValuationEngine.cs" />
+    <Compile Include="../Services/ValuationSimulationExporter.cs" Link="ValuationSimulationExporter.cs" />
     <Compile Include="../Models/TargetFilterMode.cs" Link="TargetFilterMode.cs" />
     <Compile Include="../Services/TargetProbabilityFilter.cs" Link="TargetProbabilityFilter.cs" />
     <Compile Include="../Services/TargetEconomics.cs" Link="TargetEconomics.cs" />

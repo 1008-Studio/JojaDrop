@@ -19,6 +19,14 @@ public sealed class StardewAcquisitionProfileProvider
         return indexer.Build(qualifiedItemId, ReadData());
     }
 
+    /// <summary>Builds every currently resolved ordinary-object profile from one game-data snapshot.</summary>
+    public IReadOnlyList<ValuationSimulationInput> BuildAllObjects()
+    {
+        AcquisitionIndexData data = ReadData();
+        return Game1.objectData.Select(item => new ValuationSimulationInput(item.Value.DisplayName,
+            indexer.Build(QualifyObjectId(item.Key), data), Math.Max(0, item.Value.Price))).ToArray();
+    }
+
     private static AcquisitionIndexData ReadData()
     {
         Dictionary<string, string> fishData = Game1.content.Load<Dictionary<string, string>>("Data/Fish");

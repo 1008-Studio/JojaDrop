@@ -314,6 +314,61 @@ RouteValuationBreakdown dynamicOutputRoute = pointsEngine.Evaluate(dynamicOutput
 if (dynamicOutputRoute.ProductionFloor.HasValue || !dynamicOutputRoute.ProductionReason!.Contains("Random or custom", StringComparison.Ordinal))
     throw new InvalidOperationException("Random or custom machine output must not receive an invented deterministic floor.");
 
+// Balance simulation stays outside gameplay: it exposes route diagnostics and distribution data for representative
+// vanilla categories without adding any item-specific price rule.
+var simulationExporter = new ValuationSimulationExporter(pointsEngine);
+ValuationSimulationReport simulation = simulationExporter.Simulate([
+    new("Common fish", SimulationProfile("(O)CommonFish", AcquisitionKind.Fishing, new AcquisitionMetrics(15, 50, 10, 10, 0, 0, 0, 0.50d)), 75),
+    new("Difficult fish", SimulationProfile("(O)DifficultFish", AcquisitionKind.Fishing, new AcquisitionMetrics(80, 95, 60, 50, 50, 40, 0, 0.05d)), 750),
+    new("Legend", SimulationProfile("(O)Legend", AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 50, 80, 100, 0, 0.01d)), 7500),
+    new("Common crop", SimulationProfile("(O)CommonCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 0, 0, 20, 20, 0, 50)), 35),
+    new("Expensive crop", SimulationProfile("(O)ExpensiveCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 40, 20, 70, 40, 0, 50)), 750),
+    new("Regrow crop", SimulationProfile("(O)RegrowCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 40, 20, 70, 40, 0, 100)), 750),
+    new("Common forage", SimulationProfile("(O)CommonForage", AcquisitionKind.Foraging, new AcquisitionMetrics(0, 50, 0, 0, 0, 0, 0, 0.50d)), 100),
+    new("Rare forage", SimulationProfile("(O)RareForage", AcquisitionKind.Foraging, new AcquisitionMetrics(0, 99, 0, 0, 20, 0, 0, 0.01d)), 100),
+    new("Copper resource", SimulationProfile("(O)Copper", AcquisitionKind.Mining, new AcquisitionMetrics(20, 20, 20, 20, 0, 0, 0)), 75),
+    new("Iron resource", SimulationProfile("(O)Iron", AcquisitionKind.Mining, new AcquisitionMetrics(40, 40, 40, 30, 0, 0, 0)), 150),
+    new("Gold resource", SimulationProfile("(O)Gold", AcquisitionKind.Mining, new AcquisitionMetrics(60, 60, 60, 40, 0, 0, 0)), 400),
+    new("Iridium resource", SimulationProfile("(O)Iridium", AcquisitionKind.Mining, new AcquisitionMetrics(80, 80, 80, 50, 20, 0, 0)), 1000),
+    new("Common monster drop", SimulationProfile("(O)CommonDrop", AcquisitionKind.MonsterDrop, new AcquisitionMetrics(10, 30, 20, 10, 0, 0, 0, 0.50d)), 50),
+    new("Rare monster drop", SimulationProfile("(O)RareDrop", AcquisitionKind.MonsterDrop, new AcquisitionMetrics(10, 99, 20, 10, 20, 0, 0, 0.01d)), 50),
+    new("Geode result", SimulationProfile("(O)GeodeResult", AcquisitionKind.Geode, new AcquisitionMetrics(0, 99, 0, 0, 0, 0, 0, 0.01d)), 100),
+    new("Artisan product", SimulationProfile("(O)Wine", AcquisitionKind.Machine, new AcquisitionMetrics(0, 0, 0, 70, 20, 0, 0)), 2300),
+    new("Unlimited shop item", SimulationProfile("(O)ShopItem", AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100)), 500),
+    new("Mass-farmable item", SimulationProfile("(O)MassFarm", AcquisitionKind.Farming, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100)), 100),
+    new("Difficult low-price item", SimulationProfile("(O)HardCheap", AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0, 0.001d)), 10)
+]);
+if (simulation.Statistics.Count != 19 || simulation.Entries.Count != 19 || simulation.BottomOutliers.Count != 10
+    || simulation.TopOutliers.Count != 10 || !simulationExporter.ToCsv(simulation).StartsWith("QualifiedItemId,Name,BasePrice,Points", StringComparison.Ordinal)
+    || !simulationExporter.ToSummary(simulation).Contains("P99=", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Balance simulation must export all entries, distribution statistics, and outliers.");
+}
+
+int PointsFor(string itemId) => simulation.Entries.Single(entry => entry.QualifiedItemId == itemId).Points;
+if (PointsFor("(O)Legend") < 7500 * 5 || PointsFor("(O)Legend") <= PointsFor("(O)DifficultFish")
+    || PointsFor("(O)DifficultFish") <= PointsFor("(O)CommonFish")
+    || PointsFor("(O)RareForage") <= PointsFor("(O)CommonForage")
+    || PointsFor("(O)RareDrop") <= PointsFor("(O)CommonDrop")
+    || PointsFor("(O)RegrowCrop") >= PointsFor("(O)ExpensiveCrop")
+    || PointsFor("(O)MassFarm") >= PointsFor("(O)RareForage"))
+{
+    throw new InvalidOperationException("Balance fixtures must preserve rarity, boss-fish, and renewable-route ordering without item exceptions.");
+}
+
+var shopCapped = new AcquisitionProfile("(O)ShopCapped", [
+    new AcquisitionRoute(AcquisitionKind.Machine, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "difficult production")]),
+    new AcquisitionRoute(AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "unlimited shop", "stock=unlimited")])
+]);
+if (simulationExporter.Simulate([new ValuationSimulationInput("Shop capped", shopCapped, 500)]).Entries.Single().Points != 500)
+    throw new InvalidOperationException("An unlimited easy shop route must constrain a more difficult alternate route.");
+
+var percentileCheck = new ValuationSimulationStatistics([0, 10, 20, 30]);
+if (percentileCheck.Median != 15d || percentileCheck.P75 != 22.5d || percentileCheck.P99 != 29.7d)
+    throw new InvalidOperationException("Balance percentiles must use a deterministic interpolated calculation.");
+
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
 const int selectedSourceValue = 10;
@@ -942,6 +997,10 @@ void ExpectModelException(Action action)
 
     throw new InvalidOperationException("Expected invalid acquisition-model input to be rejected.");
 }
+
+AcquisitionProfile SimulationProfile(string itemId, AcquisitionKind kind, AcquisitionMetrics metrics) => new(itemId,
+    [new AcquisitionRoute(kind, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "representative balance fixture", "season=any")])]);
 
 void ExpectPointsException(double chance)
 {
