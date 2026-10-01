@@ -198,7 +198,7 @@ internal sealed class TargetItemMenu : IClickableMenu
                 continue;
 
             TargetItemOption option = GetOption(i);
-            hoverText = $"{option.DisplayName}\n{option.Value:N0}g\nx{option.BatchMultiplier:0.00}\n{option.BatchChance * 100:0.00}% batch chance";
+            hoverText = $"{option.DisplayName}\n{option.Value:N0} pts\nx{option.BatchMultiplier:0.00}\n{option.BatchChance * 100:0.00}% batch chance";
             break;
         }
     }
@@ -227,7 +227,7 @@ internal sealed class TargetItemMenu : IClickableMenu
             TargetItemOption option = GetOption(i);
             bool valid = option.Value > 0;
             MenuDrawing.Slot(b, slots[i].bounds, option.PreviewItem, slots[i].containsPoint(mouseX, mouseY), valid);
-            MenuDrawing.CenteredText(b, MenuDrawing.FitText($"{option.Value:N0}g", slots[i].bounds.Width),
+            MenuDrawing.CenteredText(b, MenuDrawing.FitText($"{option.Value:N0} pts", slots[i].bounds.Width),
                 slots[i].bounds.Center.X, slots[i].bounds.Bottom + ValueOffset, scale: 0.75f);
         }
         MenuDrawing.TextButton(b, previousButton, "Previous", previousButton.containsPoint(mouseX, mouseY), page > 0);
