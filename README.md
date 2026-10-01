@@ -1,5 +1,5 @@
 # JojaDrop
- the upgrade with probability `q * sourceValue / targetValue`.
+Upgrade one selected item batch into one target item with probability `q * sourcePoints / targetPoints`.
 
 Milestone v0.3 provides source and target selection, probability calculation, and safe upgrade execution. A successful attempt consumes one source item and creates one new target item; a failed attempt consumes one source item.
 
@@ -41,7 +41,7 @@ Run the .NET 8 calculator checks independently of the game, SMAPI, and third-par
 dotnet run --project Tests/JojaDrop.CalculatorChecks.csproj -c Release
 ```
 
-The runner checks 15 valid, invalid, and boundary cases. It exits with code 0 on success and throws on a failed check.
+The runner checks valid, invalid, recursive, cache, and arithmetic-boundary cases. It exits with code 0 on success and throws on a failed check.
 
 Validation on 2026-09-29: Release compiled with SDK 8.0.408 against the actual Stardew Valley 1.6.15 and SMAPI 4.5.2 assemblies, with zero errors and warnings and the SMAPI analyzer enabled. All 15 calculator checks passed. Manifest consistency, release ZIP contents, whitespace, ignore rules, and layout geometry at five UI viewport sizes from 1920×1080 to 640×360 were checked. The game was not launched here; visual behavior, sounds, and controller input still need the manual in-game checks below.
 
@@ -76,7 +76,16 @@ README.md
 
 ### Value and probability rules
 
-`ItemValueService.GetValue(Item)` returns the **sale value of one item**, not the entire stack. It supports ordinary `StardewValley.Object` instances and calls the game's `sellToStorePrice` for the current player, preserving the game's quality, profession, and profit-margin rules. Recipes, quest items, big craftables, non-shippable objects, specialized subclasses, and nonpositive prices return `null`. Unsupported items are dimmed in the picker. There are no invented fallback prices or item ID lists.
+`ItemValueService.GetValue(Item)` returns JojaDrop **points for one item**, not the stack total. It supports ordinary shippable `StardewValley.Object` instances; recipes, quest items, big craftables, non-shippable objects, and specialized subclasses return `null`.
+
+Points have two explicit layers. `U(x)` is the existing intrinsic acquisition-points result derived from resolved Stardew data. `P(x)` is the value used by JojaDrop:
+
+```text
+P(x) = max(U(x), min(recipe cost))
+recipe cost = 0.90 * sum(quantity × P(ingredient)) / output quantity
+```
+
+`P` recursively uses final points of ingredients, evaluates in `double`, rounds only for the final integer point value, and selects the cheapest valid deterministic recipe. Crafting, cooking, and machine relationships are read from resolved `Data/CraftingRecipes`, `Data/CookingRecipes`, and `Data/Machines`, so normal data-driven mod entries and string IDs are included automatically. Category ingredients, random/custom outputs, malformed rules, missing inputs, and cyclic branches are conservatively skipped or fall back to `U(x)`; they never crash the menu. Final points are cached per resolved-data snapshot and invalidated with the relevant content assets.
 
 `TargetEconomics` is isolated from Stardew and applies the one-output rule: a candidate must differ from the source and have `T > q * S`, with the comparison performed using `long`. For an eligible target, its chance is exactly `p = q * S / T` and its multiplier is `T / (q * S)`. The target picker’s **All** mode shows all and only eligible upgrades; x2/x3/x5/x10 are filtered subsets using that same batch chance. A target selection never changes `q`; increasing `q` can instead clear a target that no longer qualifies. It performs no random roll.
 
@@ -94,7 +103,7 @@ Install only the packaged mod files, not the repository or game/SMAPI DLLs. No o
 1. Load a save and open the standard player menu (`E` by default), then select its **Inventory** tab.
 2. Click the upward-arrow button on the right. Its hover tooltip reads **JojaDrop Upgrader**. You can also press **U** or click the controller's **right stick** while on the Inventory tab.
 3. The JojaDrop panel opens with Your Item, Target Item, `--` probability/multiplier, and a disabled Upgrade button. Target Item remains unavailable until a source is selected.
-4. Click **Your Item** and choose a supported inventory object. Its icon, display name, and sale value per item appear in the source slot. The original item and its stack stay in your backpack.
+4. Click **Your Item** and choose a supported inventory object. Its icon, display name, and points per item appear in the source slot. The original item and its stack stay in your backpack.
 5. Set the source quantity, then click **Target Item** and choose an eligible candidate. The panel shows its icon, name, value, batch probability, and batch multiplier.
 6. Click **UPGRADE** to make one attempt. Success consumes the selected source batch and creates one target item; failure consumes the batch and creates none. The selection clears after a completed attempt.
 7. Close either picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
