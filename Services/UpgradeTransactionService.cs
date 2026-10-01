@@ -36,9 +36,9 @@ public sealed class UpgradeTransactionService
 
         int? sourceValue = getValue(sourceItem);
         int? targetValue = targetPreview is null ? null : getValue(targetPreview);
-        if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0
-            || !calculator.IsBatchTargetValueValid(
-                sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        if (!sourceValue.HasValue || !targetValue.HasValue
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetPreview?.QualifiedItemId))
         {
             return new(UpgradeTransactionStatus.InvalidTarget);
         }

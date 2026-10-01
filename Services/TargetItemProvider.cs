@@ -11,23 +11,17 @@ namespace JojaDrop.Services;
 public sealed class TargetItemProvider
 {
     private readonly ItemValueService itemValues;
-    private readonly UpgradeCalculator upgradeCalculator;
     private readonly IMonitor? monitor;
     private IReadOnlyList<CachedTarget>? cachedTargets;
     private IDictionary<string, ObjectData>? cachedObjectData;
 
-    public TargetItemProvider(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, IMonitor? monitor = null)
+    public TargetItemProvider(ItemValueService itemValues, IMonitor? monitor = null)
     {
         this.itemValues = itemValues ?? throw new ArgumentNullException(nameof(itemValues));
-        this.upgradeCalculator = upgradeCalculator ?? throw new ArgumentNullException(nameof(upgradeCalculator));
         this.monitor = monitor;
     }
 
-    /// <summary>Get preview-only targets with a positive value, optionally narrowed by upgrade probability.</summary>
-    /// <param name="sourceItem">The selected source item whose unit value seeds the 1 → 1 preview math.</param>
-    /// <param name="sourceQuantity">The selected source quantity; probability filters compare the target
-    /// against the total source value (unit value × quantity), not against one unit.</param>
-    /// <param name="filterMode">Optional probability filter. The unfiltered All mode is unchanged.</param>
+    /// <summary>Get preview-only targets eligible for the active one-output source batch.</summary>
     public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem, int sourceQuantity, TargetFilterMode filterMode = TargetFilterMode.All)
     {
         ArgumentNullException.ThrowIfNull(sourceItem);
@@ -36,26 +30,14 @@ public sealed class TargetItemProvider
         if (!sourceValue.HasValue || sourceValue.Value <= 0)
             return Array.Empty<TargetItemOption>();
 
-        // The filter must price the whole selected batch: Bait x20 @ 1g filters
-        // against 20g, so its x2 targets sit around 40g. The total is recomputed
-        // on every call, so a quantity change is picked up when the picker reopens.
-        int totalSourceValue = upgradeCalculator.GetTotalSourceValue((sourceValue.Value, Math.Max(1, sourceQuantity)));
-
-        IEnumerable<TargetItemOption> options = GetCachedTargets()
-            .Where(target => target.Value > 0)
-            .Select(target => new TargetItemOption(
-                target.PreviewItem,
-                target.Value,
-                upgradeCalculator.CalculateChance(sourceValue.Value, target.Value),
-                (double)target.Value / sourceValue.Value));
-
-        // The probability filter only narrows the existing candidate list; validity rules,
-        // sorting, the 1 → 1 preview math and the unfiltered All mode stay exactly as before.
-        if (filterMode != TargetFilterMode.All)
-            options = options.Where(option => TargetProbabilityFilter.Matches(filterMode,
-                upgradeCalculator.CalculateChance(totalSourceValue, option.Value)));
-
-        return options.ToArray();
+        IReadOnlyList<CachedTarget> cached = GetCachedTargets();
+        Dictionary<string, CachedTarget> targetsById = cached.ToDictionary(target => target.PreviewItem.QualifiedItemId,
+            StringComparer.Ordinal);
+        return TargetEconomics.SelectTargets(sourceItem.QualifiedItemId, sourceQuantity, sourceValue.Value,
+                cached.Select(target => new TargetCandidate(target.PreviewItem.QualifiedItemId, target.Value)), filterMode)
+            .Select(target => new TargetItemOption(targetsById[target.QualifiedItemId].PreviewItem, target.Value,
+                target.BatchChance, target.BatchMultiplier))
+            .ToArray();
     }
 
     /// <summary>Discard the cached game-data scan, for example after object data is invalidated.</summary>

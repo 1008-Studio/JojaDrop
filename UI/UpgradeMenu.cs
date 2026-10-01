@@ -46,7 +46,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     };
     private static readonly string[] FilterLabels = { "x2", "x3", "x5", "x10" };
     private readonly ItemValueService itemValues;
-    private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
     private readonly UpgradeTransactionService transactionService;
     private readonly InventoryBatchService inventory = new();
@@ -81,12 +80,11 @@ internal sealed class UpgradeMenu : IClickableMenu
     private TargetItemOption? pendingTarget;
     private int pendingSourceQuantity;
 
-    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
+    public UpgradeMenu(ItemValueService itemValues, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor,
         Texture2D wheelArrow, Texture2D wheelCenter, Texture2D wheelFrame)
     {
         this.itemValues = itemValues;
-        this.upgradeCalculator = upgradeCalculator;
         this.upgradeRoller = upgradeRoller;
         this.transactionService = transactionService;
         this.targetItemProvider = targetItemProvider;
@@ -289,8 +287,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             if (option is not null)
             {
                 targetOption = option;
-                if (sourceItem is not null)
-                    RefreshQuantityState();
 
                 string? selectionError = GetTargetSelectionError();
                 if (selectionError is not null)
@@ -327,11 +323,10 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0)
             return "Upgrade unavailable: target item has no valid value.";
 
-        // One upgrade operation always outputs exactly one item, so the target
-        // must be worth at least the whole source batch (chance = q * S / T <= 100%).
-        return upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value)
+        return TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption?.QualifiedItemId)
             ? null
-            : "Upgrade unavailable: target batch value is too low.";
+            : "Upgrade unavailable: target must be worth more than the source batch.";
     }
 
     public override void receiveKeyPress(Keys key)
@@ -413,7 +408,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private bool CanUpgrade => HasUpgradeSelection && availableQuantity >= sourceQuantity && !hasRolledCurrentSelection
         && TryGetUpgradePreview(out _, out _);
     private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
-    private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < MaxSourceQuantity;
+    private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
     private bool CanSelectTargetFilter => sourceItem is not null;
 
     private string GetChanceText()
@@ -438,11 +433,12 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= 0)
             return false;
 
-        if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
+        if (!TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption.QualifiedItemId))
             return false;
 
-        chance = upgradeCalculator.CalculateChance(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value);
-        multiplier = (double)SingleOutputQuantity * targetValue.Value / ((double)sourceQuantity * sourceValue.Value);
+        chance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value);
+        multiplier = TargetEconomics.CalculateMultiplier(sourceQuantity, sourceValue.Value, targetValue.Value);
         return true;
     }
 
@@ -491,13 +487,14 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: target item has no valid value.";
                 return;
             }
-            if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
+            if (!TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, source.QualifiedItemId,
+                    targetValue.Value, targetPreview.QualifiedItemId))
             {
-                statusMessage = "Upgrade unavailable: target batch value is too low.";
+                statusMessage = "Upgrade unavailable: target must be worth more than the source batch.";
                 return;
             }
 
-            double chance = upgradeCalculator.CalculateChance(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value);
+            double chance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
 
             // The roll is decided now, but the transaction is applied only after the
@@ -542,7 +539,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? targetValue = itemValues.GetValue(targetPreview);
         if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
             || !targetValue.HasValue || targetValue.Value <= 0
-            || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, source.QualifiedItemId,
+                targetValue.Value, targetPreview.QualifiedItemId))
         {
             statusMessage = "Upgrade unavailable: target is no longer valid.";
             hasRolledCurrentSelection = false;
@@ -586,32 +584,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     private void RefreshQuantityState()
     {
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
-        int maxQuantity = MaxSourceQuantity;
-        if (maxQuantity > 0)
-            sourceQuantity = Math.Clamp(sourceQuantity, 1, maxQuantity);
-    }
-
-    /// <summary>
-    /// Highest source quantity the current selection can pay out. One operation always outputs
-    /// exactly one item, so the whole source batch may be worth no more than that target
-    /// (otherwise the chance q * S / T would exceed 100%).
-    /// </summary>
-    private int MaxSourceQuantity
-    {
-        get
-        {
-            if (availableQuantity <= 0)
-                return 0;
-            if (targetOption is null || sourceItem is null)
-                return availableQuantity;
-
-            int? sourceValue = itemValues.GetValue(sourceItem);
-            int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
-            if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0)
-                return availableQuantity;
-
-            return Math.Min(availableQuantity, Math.Max(1, targetValue.Value / sourceValue.Value));
-        }
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
@@ -674,9 +646,39 @@ internal sealed class UpgradeMenu : IClickableMenu
     private void ChangeSourceQuantity(int delta)
     {
         RefreshQuantityState();
-        int maxQuantity = MaxSourceQuantity;
-        if (maxQuantity > 0)
-            sourceQuantity = Math.Clamp(sourceQuantity + delta, 1, maxQuantity);
+        if (availableQuantity < 1)
+            return;
+
+        int newQuantity = Math.Clamp(sourceQuantity + delta, 1, availableQuantity);
+        if (newQuantity == sourceQuantity)
+            return;
+
+        sourceQuantity = newQuantity;
+        RefreshSelectedTargetForSourceQuantity();
+    }
+
+    private void RefreshSelectedTargetForSourceQuantity()
+    {
+        if (sourceItem is null || targetOption is null)
+            return;
+
+        int? sourceValue = itemValues.GetValue(sourceItem);
+        int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
+        if (!sourceValue.HasValue || !targetValue.HasValue
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption.QualifiedItemId))
+        {
+            targetOption = null;
+            hasRolledCurrentSelection = false;
+            statusMessage = "Selected target no longer qualifies for this source quantity.";
+            return;
+        }
+
+        targetOption = targetOption with
+        {
+            BatchChance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value),
+            BatchMultiplier = TargetEconomics.CalculateMultiplier(sourceQuantity, sourceValue.Value, targetValue.Value)
+        };
     }
 
     private void DrawQuantityControl(SpriteBatch b, ClickableComponent decrease, ClickableComponent increase, int quantity, bool canDecrease, bool canIncrease)

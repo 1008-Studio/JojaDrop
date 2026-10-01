@@ -6,6 +6,71 @@ var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
 
+// Single-output target economics: target selection always evaluates the complete q * S batch.
+const int selectedSourceQuantity = 10;
+const int selectedSourceValue = 10;
+if (TargetEconomics.IsEligible(selectedSourceQuantity, selectedSourceValue, "source", 30, "cheap")
+    || TargetEconomics.IsEligible(selectedSourceQuantity, selectedSourceValue, "source", 5, "cheaper")
+    || TargetEconomics.IsEligible(selectedSourceQuantity, selectedSourceValue, "source", 100, "equal")
+    || !TargetEconomics.IsEligible(selectedSourceQuantity, selectedSourceValue, "source", 101, "upgrade"))
+{
+    throw new InvalidOperationException("A one-output target must be strictly worth more than q * S.");
+}
+
+TargetCandidate[] targetCandidates =
+[
+    new("50", 50), new("99", 99), new("100", 100), new("101", 101), new("200", 200)
+];
+TargetCandidateOption[] allEligible = TargetEconomics.SelectTargets("source", selectedSourceQuantity,
+    selectedSourceValue, targetCandidates, TargetFilterMode.All).ToArray();
+if (!allEligible.Select(target => target.Value).SequenceEqual(new[] { 101, 200 })
+    || Math.Abs(allEligible[0].BatchChance - 100d / 101d) > 1e-12
+    || Math.Abs(allEligible[0].BatchMultiplier - 101d / 100d) > 1e-12)
+{
+    throw new InvalidOperationException("All mode must return only eligible, non-source targets with batch economics.");
+}
+
+if (TargetEconomics.SelectTargets("source", 1, selectedSourceValue,
+        new[] { new TargetCandidate("source", 200) }, TargetFilterMode.All).Count != 0)
+{
+    throw new InvalidOperationException("The source QualifiedItemId must never be offered as a target.");
+}
+
+if (TargetEconomics.SelectTargets("source", 0, selectedSourceValue, targetCandidates, TargetFilterMode.All).Count != 0)
+    throw new InvalidOperationException("A zero source quantity must be rejected, not treated as one.");
+
+TargetCandidate[] filteredCandidates =
+[
+    new("101", 101), new("200", 200), new("250", 250), new("300", 300), new("500", 500), new("1000", 1000)
+];
+foreach ((TargetFilterMode mode, int[] expected) in new[]
+{
+    (TargetFilterMode.X2, new[] { 200, 250 }),
+    (TargetFilterMode.X3, new[] { 250, 300 }),
+    (TargetFilterMode.X5, new[] { 500 }),
+    (TargetFilterMode.X10, new[] { 1000 })
+})
+{
+    int[] actual = TargetEconomics.SelectTargets("source", selectedSourceQuantity, selectedSourceValue,
+        filteredCandidates, mode).Select(target => target.Value).ToArray();
+    if (!actual.SequenceEqual(expected))
+        throw new InvalidOperationException($"{mode} must filter the q * S eligible target set.");
+}
+
+// A quantity change never substitutes a smaller q; it only makes the selected target ineligible.
+int changedSourceQuantity = 10;
+bool clearsSelectedTarget = !TargetEconomics.IsEligible(changedSourceQuantity, selectedSourceValue,
+    "source", 30, "target");
+if (!clearsSelectedTarget || changedSourceQuantity != 10)
+    throw new InvalidOperationException("Invalidating a selected target must preserve the user-selected source quantity.");
+
+if (!TargetEconomics.IsEligible(int.MaxValue - 1, 1, "source", int.MaxValue, "target")
+    || TargetEconomics.IsEligible(int.MaxValue, 1, "source", int.MaxValue, "target")
+    || TargetEconomics.IsEligible(int.MaxValue, int.MaxValue, "source", int.MaxValue, "target"))
+{
+    throw new InvalidOperationException("Target eligibility must use long source-batch comparisons near int.MaxValue.");
+}
+
 foreach (var (source, target, expected) in new[]
 {
     (1000, 2000, 0.5),
@@ -420,7 +485,7 @@ Item[] multiStackSources =
 ];
 var multiStackPlayer = new Farmer(5, multiStackSources);
 UpgradeTransactionResult multiStackTransaction = transactionService.Apply(multiStackPlayer, multiStackSources[0],
-    new Item("target", 1) { Value = 8000 }, 4000, 1, success: true);
+    new Item("target", 1) { Value = 8001 }, 4000, 1, success: true);
 if (!multiStackTransaction.IsSuccess
     || multiStackPlayer.Items.Count(item => item is not null) != 1
     || multiStackPlayer.Items.Count(item => item is { QualifiedItemId: "target", Stack: 1 }) != 1)
@@ -477,6 +542,22 @@ if (transactionService.Apply(cheapTargetPlayer, cheapTargetSource, new Item("tar
     throw new InvalidOperationException("A target that cannot cover the source batch alone must be rejected without mutation.");
 }
 
+Item equalValueSource = new("source", 10) { Value = 10 };
+var equalValuePlayer = new Farmer(1, equalValueSource);
+if (transactionService.Apply(equalValuePlayer, equalValueSource, new Item("target", 1) { Value = 100 }, 10, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidTarget || equalValueSource.Stack != 10)
+{
+    throw new InvalidOperationException("A target equal to q * S must be rejected without mutating inventory.");
+}
+
+Item sameItemSource = new("source", 1) { Value = 10 };
+var sameItemPlayer = new Farmer(1, sameItemSource);
+if (transactionService.Apply(sameItemPlayer, sameItemSource, new Item("source", 1) { Value = 11 }, 1, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidTarget || sameItemSource.Stack != 1)
+{
+    throw new InvalidOperationException("The transaction backstop must reject the source item as its own target.");
+}
+
 // Final flow: ten source items spread across three stacks must resolve to
 // exactly one selected target item of a single type.
 Item[] flowSources =
@@ -487,7 +568,7 @@ Item[] flowSources =
 ];
 var flowPlayer = new Farmer(4, flowSources[0], flowSources[1], flowSources[2], null);
 UpgradeTransactionResult flowSuccess = transactionService.Apply(flowPlayer, flowSources[0],
-    new Item("target", 1) { Value = 100 }, 10, 1, success: true);
+    new Item("target", 1) { Value = 101 }, 10, 1, success: true);
 if (!flowSuccess.IsSuccess
     || flowPlayer.Items.Count(item => item is { QualifiedItemId: "target", Stack: 1 }) != 1
     || flowPlayer.Items.Any(item => item is not null && item.QualifiedItemId != "target"))
@@ -499,7 +580,7 @@ if (!flowSuccess.IsSuccess
 Item[] flowFailureSources = [new Item("source", 5) { Value = 10 }, new Item("source", 5) { Value = 10 }];
 var flowFailurePlayer = new Farmer(2, flowFailureSources);
 UpgradeTransactionResult flowFailure = transactionService.Apply(flowFailurePlayer, flowFailureSources[0],
-    new Item("target", 1) { Value = 100 }, 10, 1, success: false);
+    new Item("target", 1) { Value = 101 }, 10, 1, success: false);
 if (!flowFailure.IsSuccess || flowFailurePlayer.Items.Any(item => item is not null))
     throw new InvalidOperationException("A failed flow must consume the whole batch and create no output.");
 
