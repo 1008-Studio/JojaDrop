@@ -7,6 +7,7 @@ public sealed class ItemValueService
 {
     private readonly StardewAcquisitionProfileProvider profiles;
     private readonly ValuationSimulationExporter exporter = new();
+    private readonly FinalPointsCache finalPoints = new();
     private IReadOnlyDictionary<string, int>? cachedPoints;
 
     public ItemValueService(StardewAcquisitionProfileProvider profiles)
@@ -28,11 +29,19 @@ public sealed class ItemValueService
             return null;
         }
 
-        cachedPoints ??= exporter.Simulate(profiles.BuildAllObjects()).Entries
-            .ToDictionary(entry => entry.QualifiedItemId, entry => entry.Points, StringComparer.Ordinal);
+        if (cachedPoints is null)
+        {
+            IReadOnlyDictionary<string, int> uniquePoints = exporter.Simulate(profiles.BuildAllObjects()).Entries
+                .ToDictionary(entry => entry.QualifiedItemId, entry => entry.Points, StringComparer.Ordinal);
+            cachedPoints = finalPoints.Get(uniquePoints, profiles.BuildProductionRecipes());
+        }
         return cachedPoints.TryGetValue(obj.QualifiedItemId, out int points) && points > 0 ? points : null;
     }
 
     /// <summary>Discard points derived from resolved data assets after those assets change.</summary>
-    public void InvalidateCache() => cachedPoints = null;
+    public void InvalidateCache()
+    {
+        cachedPoints = null;
+        finalPoints.Invalidate();
+    }
 }
