@@ -12,7 +12,7 @@ public sealed class ModEntry : Mod
         var upgradeRoller = new UpgradeRoller();
         var itemValues = new ItemValueService();
         var transactionService = new UpgradeTransactionService(upgradeCalculator, itemValues.GetValue);
-        var integration = new InventoryIntegration(helper, Monitor, itemValues, upgradeCalculator, upgradeRoller, transactionService);
+        var integration = new InventoryIntegration(helper, Monitor, itemValues, upgradeRoller, transactionService);
         integration.RegisterEvents();
         Monitor.Log("JojaDrop loaded successfully.", LogLevel.Info);
     }

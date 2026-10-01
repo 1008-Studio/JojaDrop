@@ -11,20 +11,18 @@ namespace JojaDrop.Services;
 public sealed class TargetItemProvider
 {
     private readonly ItemValueService itemValues;
-    private readonly UpgradeCalculator upgradeCalculator;
     private readonly IMonitor? monitor;
     private IReadOnlyList<CachedTarget>? cachedTargets;
     private IDictionary<string, ObjectData>? cachedObjectData;
 
-    public TargetItemProvider(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, IMonitor? monitor = null)
+    public TargetItemProvider(ItemValueService itemValues, IMonitor? monitor = null)
     {
         this.itemValues = itemValues ?? throw new ArgumentNullException(nameof(itemValues));
-        this.upgradeCalculator = upgradeCalculator ?? throw new ArgumentNullException(nameof(upgradeCalculator));
         this.monitor = monitor;
     }
 
-    /// <summary>Get preview-only targets with a positive value.</summary>
-    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem)
+    /// <summary>Get preview-only targets eligible for the active one-output source batch.</summary>
+    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem, int sourceQuantity, TargetFilterMode filterMode = TargetFilterMode.All)
     {
         ArgumentNullException.ThrowIfNull(sourceItem);
 
@@ -32,13 +30,13 @@ public sealed class TargetItemProvider
         if (!sourceValue.HasValue || sourceValue.Value <= 0)
             return Array.Empty<TargetItemOption>();
 
-        return GetCachedTargets()
-            .Where(target => target.Value > 0)
-            .Select(target => new TargetItemOption(
-                target.PreviewItem,
-                target.Value,
-                upgradeCalculator.CalculateChance(sourceValue.Value, target.Value),
-                (double)target.Value / sourceValue.Value))
+        IReadOnlyList<CachedTarget> cached = GetCachedTargets();
+        Dictionary<string, CachedTarget> targetsById = cached.ToDictionary(target => target.PreviewItem.QualifiedItemId,
+            StringComparer.Ordinal);
+        return TargetEconomics.SelectTargets(sourceItem.QualifiedItemId, sourceQuantity, sourceValue.Value,
+                cached.Select(target => new TargetCandidate(target.PreviewItem.QualifiedItemId, target.Value)), filterMode)
+            .Select(target => new TargetItemOption(targetsById[target.QualifiedItemId].PreviewItem, target.Value,
+                target.BatchChance, target.BatchMultiplier))
             .ToArray();
     }
 

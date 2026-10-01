@@ -87,6 +87,10 @@ internal static class RouletteWheel
             0f, Vector2.Zero, SpriteEffects.None, CenterLayerDepth);
     }
 
+    /// <summary>Gets the bounds occupied by the visible wheel frame.</summary>
+    public static Rectangle GetFrameBounds(Vector2 center, float scale = 1f) =>
+        CenteredBounds(center, GetAssetSize(WheelFrameScale, scale));
+
     private static int GetAssetSize(int assetScale, float uiScale) => Math.Max(1, (int)MathF.Round(AssetSize * assetScale * uiScale));
 
     private static Rectangle CenteredBounds(Vector2 center, int size) => new(

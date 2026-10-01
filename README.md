@@ -1,6 +1,5 @@
-# JojaDrop 
-
-JojaDrop is a SMAPI mod for Stardew Valley with an item upgrader: choose a source item and a more valuable target, then attempt the upgrade with probability `sourceValue / targetValue`.
+# JojaDrop
+ the upgrade with probability `q * sourceValue / targetValue`.
 
 Milestone v0.3 provides source and target selection, probability calculation, and safe upgrade execution. A successful attempt consumes one source item and creates one new target item; a failed attempt consumes one source item.
 
@@ -79,7 +78,7 @@ README.md
 
 `ItemValueService.GetValue(Item)` returns the **sale value of one item**, not the entire stack. It supports ordinary `StardewValley.Object` instances and calls the game's `sellToStorePrice` for the current player, preserving the game's quality, profession, and profit-margin rules. Recipes, quest items, big craftables, non-shippable objects, specialized subclasses, and nonpositive prices return `null`. Unsupported items are dimmed in the picker. There are no invented fallback prices or item ID lists.
 
-`UpgradeCalculator.CalculateChance(int, int)` is isolated from Stardew and returns a probability in `0..1`. Nonpositive inputs throw `ArgumentOutOfRangeException`; targets worth no more than the source throw `ArgumentException`. For valid upgrades it uses floating-point division and clamps the result. It performs no random roll. The menu shows this probability and the target multiplier only after both selections are made.
+`TargetEconomics` is isolated from Stardew and applies the one-output rule: a candidate must differ from the source and have `T > q * S`, with the comparison performed using `long`. For an eligible target, its chance is exactly `p = q * S / T` and its multiplier is `T / (q * S)`. The target picker’s **All** mode shows all and only eligible upgrades; x2/x3/x5/x10 are filtered subsets using that same batch chance. A target selection never changes `q`; increasing `q` can instead clear a target that no longer qualifies. It performs no random roll.
 
 ## Installation
 
@@ -96,8 +95,8 @@ Install only the packaged mod files, not the repository or game/SMAPI DLLs. No o
 2. Click the upward-arrow button on the right. Its hover tooltip reads **JojaDrop Upgrader**. You can also press **U** or click the controller's **right stick** while on the Inventory tab.
 3. The JojaDrop panel opens with Your Item, Target Item, `--` probability/multiplier, and a disabled Upgrade button. Target Item remains unavailable until a source is selected.
 4. Click **Your Item** and choose a supported inventory object. Its icon, display name, and sale value per item appear in the source slot. The original item and its stack stay in your backpack.
-5. Click **Target Item** and choose a more valuable candidate. The panel shows its icon, name, value, probability, and multiplier.
-6. Click **UPGRADE** to make one attempt. Success replaces one source item with a newly created target item; failure consumes one source item. The selection clears after a completed attempt.
+5. Set the source quantity, then click **Target Item** and choose an eligible candidate. The panel shows its icon, name, value, batch probability, and batch multiplier.
+6. Click **UPGRADE** to make one attempt. Success consumes the selected source batch and creates one target item; failure consumes the batch and creates none. The selection clears after a completed attempt.
 7. Close either picker with its cross, Esc, or controller B to cancel and return to JojaDrop. Close JojaDrop the same way to return to gameplay.
 
 Directional controller navigation uses clickable components in both custom menus; A activates the focused component. The picker also supports shoulder buttons, mouse wheel, and Previous/Next buttons for pagination.
@@ -110,9 +109,9 @@ The inventory button is rendered through `RenderedActiveMenu` and activated thro
 - Confirm the button appears only on Inventory, and vanilla tabs, equipment, trash can, and item drag/drop still work.
 - Check button hover, tooltip, and opening sound; try opening while holding an inventory item.
 - Choose an object, verify its name and per-item value, and confirm its stack is unchanged after closing/reopening menus.
-- Confirm target selection is unavailable without a source, target values exceed the source, and candidates are value-sorted.
-- Confirm source/target selection shows the expected probability and multiplier; changing or removing the source clears the target.
-- Confirm a successful upgrade removes exactly one source item and adds one new target item; confirm failure removes exactly one source item and adds none.
+- Confirm target selection is unavailable without a source, only targets strictly above `q * S` are offered, the source item itself is excluded, and candidates are value-sorted.
+- Confirm source/target selection shows the expected batch probability and multiplier; increasing q past a target’s eligibility clears that target without changing q.
+- Confirm a successful upgrade removes exactly q source items and adds one new target item; confirm failure removes exactly q source items and adds none.
 - With a full inventory, confirm a success target which cannot stack leaves the source unchanged and reports the inventory-full status.
 - Double-click Upgrade and confirm only one attempt is made until source or target is selected again.
 - Check picker cancellation, close cross, Esc, and controller navigation/A/B.

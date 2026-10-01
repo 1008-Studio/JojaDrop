@@ -14,7 +14,6 @@ internal sealed class InventoryIntegration
     private readonly IModHelper helper;
     private readonly IMonitor monitor;
     private readonly ItemValueService itemValues;
-    private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
     private readonly UpgradeTransactionService transactionService;
     private readonly TargetItemProvider targetItemProvider;
@@ -25,16 +24,15 @@ internal sealed class InventoryIntegration
     private float hiddenCursorTransparency;
     private bool restoreCursor;
 
-    public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues, UpgradeCalculator upgradeCalculator,
-        UpgradeRoller upgradeRoller, UpgradeTransactionService transactionService)
+    public InventoryIntegration(IModHelper helper, IMonitor monitor, ItemValueService itemValues, UpgradeRoller upgradeRoller,
+        UpgradeTransactionService transactionService)
     {
         this.helper = helper;
         this.monitor = monitor;
         this.itemValues = itemValues;
-        this.upgradeCalculator = upgradeCalculator;
         this.upgradeRoller = upgradeRoller;
         this.transactionService = transactionService;
-        targetItemProvider = new TargetItemProvider(itemValues, upgradeCalculator, monitor);
+        targetItemProvider = new TargetItemProvider(itemValues, monitor);
         Texture2D buttonTexture = helper.ModContent.Load<Texture2D>("assets/upgrade-button.png");
         wheelArrow = helper.ModContent.Load<Texture2D>("assets/wheel/wheel_arrow.png");
         wheelCenter = helper.ModContent.Load<Texture2D>("assets/wheel/wheel_center.png");
@@ -111,7 +109,7 @@ internal sealed class InventoryIntegration
 
         helper.Input.Suppress(e.Button);
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeCalculator, upgradeRoller, transactionService,
+        Game1.activeClickableMenu = new UpgradeMenu(itemValues, upgradeRoller, transactionService,
             targetItemProvider, monitor, wheelArrow, wheelCenter, wheelFrame);
         monitor.Log("Opened JojaDrop upgrader.", LogLevel.Trace);
     }

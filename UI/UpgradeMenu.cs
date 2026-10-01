@@ -11,8 +11,11 @@ namespace JojaDrop.UI;
 
 internal sealed class UpgradeMenu : IClickableMenu
 {
-    private const int PanelWidth = 720;
-    private const int PanelHeight = 440;
+    private const int BasePanelWidth = 720;
+    private const int BasePanelHeight = 440;
+    private const float MenuScale = 1.18f;
+    private static readonly int PanelWidth = (int)MathF.Round(BasePanelWidth * MenuScale);
+    private static readonly int PanelHeight = (int)MathF.Round(BasePanelHeight * MenuScale);
     private const int TitleOffset = 36;
     private const int SlotTopOffset = 132;
     private const int LabelGap = 40;
@@ -20,6 +23,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int ButtonHeight = 64;
     private const int ButtonFooterGap = 64;
     private const int QuantityButtonSize = 36;
+    // One upgrade operation always produces exactly one target item.
+    private const int SingleOutputQuantity = 1;
     private const int StatusBottomOffset = 40;
     private const int ItemNameGap = 12;
     private const int ItemValueGap = 40;
@@ -31,10 +36,17 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int CloseId = 103;
     private const int SourceDecreaseId = 104;
     private const int SourceIncreaseId = 105;
-    private const int OutputDecreaseId = 106;
-    private const int OutputIncreaseId = 107;
+    private const int FilterIdOffset = 108;
+    private const int FilterButtonSize = 36;
+    private const int FilterButtonGap = 4;
+    private const int FilterButtonTextPadding = 4;
+    private const int FilterButtonTextReferenceWidth = 30;
+    private static readonly TargetFilterMode[] FilterModes =
+    {
+        TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10
+    };
+    private static readonly string[] FilterLabels = { "x2", "x3", "x5", "x10" };
     private readonly ItemValueService itemValues;
-    private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
     private readonly UpgradeTransactionService transactionService;
     private readonly InventoryBatchService inventory = new();
@@ -48,12 +60,10 @@ internal sealed class UpgradeMenu : IClickableMenu
     private ClickableComponent upgradeButton = null!;
     private ClickableComponent sourceDecreaseButton = null!;
     private ClickableComponent sourceIncreaseButton = null!;
-    private ClickableComponent outputDecreaseButton = null!;
-    private ClickableComponent outputIncreaseButton = null!;
+    private readonly ClickableComponent[] filterButtons = new ClickableComponent[FilterModes.Length];
     private Item? sourceItem;
     private TargetItemOption? targetOption;
     private int sourceQuantity = 1;
-    private int outputQuantity = 1;
     private int availableQuantity;
     private string hoverText = "";
     private string statusMessage = "";
@@ -70,14 +80,12 @@ internal sealed class UpgradeMenu : IClickableMenu
     private Item? pendingSource;
     private TargetItemOption? pendingTarget;
     private int pendingSourceQuantity;
-    private int pendingOutputQuantity;
 
-    public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
+    public UpgradeMenu(ItemValueService itemValues, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor,
         Texture2D wheelArrow, Texture2D wheelCenter, Texture2D wheelFrame)
     {
         this.itemValues = itemValues;
-        this.upgradeCalculator = upgradeCalculator;
         this.upgradeRoller = upgradeRoller;
         this.transactionService = transactionService;
         this.targetItemProvider = targetItemProvider;
@@ -94,7 +102,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         viewportSize = new Point(Game1.uiViewport.Width, Game1.uiViewport.Height);
         width = Math.Min(PanelWidth, Math.Max(1, viewportSize.X - MenuDrawing.ScreenMargin * 2));
         height = Math.Min(PanelHeight, Math.Max(1, viewportSize.Y - MenuDrawing.ScreenMargin * 2));
-        layoutScale = Math.Min(width / (float)PanelWidth, height / (float)PanelHeight);
+        layoutScale = Math.Min(width / (float)BasePanelWidth, height / (float)BasePanelHeight);
         xPositionOnScreen = (viewportSize.X - width) / 2;
         yPositionOnScreen = (viewportSize.Y - height) / 2;
         int slotTop = yPositionOnScreen + Scale(SlotTopOffset);
@@ -110,7 +118,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         targetSlot = new ClickableComponent(new Rectangle(xPositionOnScreen + width * 3 / 4 - slotSize / 2,
             slotTop, slotSize, slotSize), "Target Item")
         {
-            myID = TargetId, leftNeighborID = SourceId, downNeighborID = UpgradeId, upNeighborID = CloseId
+            myID = TargetId, leftNeighborID = SourceId, rightNeighborID = FilterIdOffset,
+            downNeighborID = UpgradeId, upNeighborID = CloseId
         };
         upgradeButton = new ClickableComponent(new Rectangle(xPositionOnScreen + (width - buttonWidth) / 2,
             yPositionOnScreen + height - buttonHeight - Scale(ButtonFooterGap), buttonWidth, buttonHeight), "Upgrade")
@@ -121,24 +130,39 @@ internal sealed class UpgradeMenu : IClickableMenu
         int quantityTop = slotTop + slotSize + Scale(72);
         sourceDecreaseButton = CreateQuantityButton(sourceSlot.bounds.Center.X - Scale(52), quantityTop, quantitySize, SourceDecreaseId);
         sourceIncreaseButton = CreateQuantityButton(sourceSlot.bounds.Center.X + Scale(16), quantityTop, quantitySize, SourceIncreaseId);
-        outputDecreaseButton = CreateQuantityButton(targetSlot.bounds.Center.X - Scale(52), quantityTop, quantitySize, OutputDecreaseId);
-        outputIncreaseButton = CreateQuantityButton(targetSlot.bounds.Center.X + Scale(16), quantityTop, quantitySize, OutputIncreaseId);
         sourceDecreaseButton.rightNeighborID = SourceIncreaseId;
         sourceIncreaseButton.leftNeighborID = SourceDecreaseId;
-        sourceIncreaseButton.rightNeighborID = OutputDecreaseId;
-        outputDecreaseButton.leftNeighborID = SourceIncreaseId;
-        outputDecreaseButton.rightNeighborID = OutputIncreaseId;
-        outputIncreaseButton.leftNeighborID = OutputDecreaseId;
+        sourceIncreaseButton.rightNeighborID = TargetId;
         sourceDecreaseButton.upNeighborID = sourceIncreaseButton.upNeighborID = SourceId;
-        outputDecreaseButton.upNeighborID = outputIncreaseButton.upNeighborID = TargetId;
         sourceDecreaseButton.downNeighborID = sourceIncreaseButton.downNeighborID = UpgradeId;
-        outputDecreaseButton.downNeighborID = outputIncreaseButton.downNeighborID = UpgradeId;
+
+        // Keep the filter row under the target's name and value, centred on its slot.
+        int filterSize = Scale(FilterButtonSize);
+        int filterGap = Scale(FilterButtonGap);
+        int filterWidth = filterButtons.Length * filterSize + (filterButtons.Length - 1) * filterGap;
+        int filterLeft = targetSlot.bounds.Center.X - filterWidth / 2;
+        int filterTop = targetSlot.bounds.Bottom + Scale(72);
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            int id = FilterIdOffset + i;
+            filterButtons[i] = new ClickableComponent(
+                new Rectangle(filterLeft + i * (filterSize + filterGap), filterTop, filterSize, filterSize), FilterLabels[i])
+            {
+                myID = id,
+                leftNeighborID = i == 0 ? TargetId : id - 1,
+                rightNeighborID = i == filterButtons.Length - 1 ? CloseId : id + 1,
+                upNeighborID = TargetId,
+                downNeighborID = UpgradeId
+            };
+        }
+
         initializeUpperRightCloseButton();
         upperRightCloseButton.myID = CloseId;
         upperRightCloseButton.leftNeighborID = TargetId;
         upperRightCloseButton.downNeighborID = TargetId;
         allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, sourceDecreaseButton, sourceIncreaseButton,
-            outputDecreaseButton, outputIncreaseButton, upgradeButton, upperRightCloseButton };
+            upgradeButton, upperRightCloseButton };
+        allClickableComponents.AddRange(filterButtons);
 
         if (Game1.options.SnappyMenus)
         {
@@ -182,7 +206,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             pendingSource = null;
             pendingTarget = null;
             pendingSourceQuantity = 0;
-            pendingOutputQuantity = 0;
             rouletteResult = false;
         }
         else if (sourceItem is not null)
@@ -219,7 +242,6 @@ internal sealed class UpgradeMenu : IClickableMenu
                     pendingSource = null;
                     pendingTarget = null;
                     pendingSourceQuantity = 0;
-                    pendingOutputQuantity = 0;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -238,53 +260,73 @@ internal sealed class UpgradeMenu : IClickableMenu
             ChangeSourceQuantity(1);
             return;
         }
-        if (outputDecreaseButton.containsPoint(x, y))
-        {
-            ChangeOutputQuantity(-1);
-            return;
-        }
-        if (outputIncreaseButton.containsPoint(x, y))
-        {
-            ChangeOutputQuantity(1);
-            return;
-        }
         if (targetSlot.containsPoint(x, y) && sourceItem is not null)
         {
-            if (playSound)
-                Game1.playSound("smallSelect");
-            Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem), option =>
-            {
-                if (option is not null)
-                {
-                    targetOption = option;
-                    if (!TryGetMinimumOutputQuantity(out int minimumOutput))
-                    {
-                        targetOption = null;
-                        statusMessage = "Upgrade unavailable: target item has no valid value.";
-                        Game1.activeClickableMenu = this;
-                        UpdateLayout();
-                        return;
-                    }
-
-                    outputQuantity = minimumOutput;
-                    RefreshQuantityState();
-                    hasRolledCurrentSelection = false;
-                    isAnimatingRoulette = false;
-                    rouletteAnimationTimer = 0f;
-                    pendingSource = null;
-                    pendingTarget = null;
-                    pendingSourceQuantity = 0;
-                    pendingOutputQuantity = 0;
-                    rouletteResult = false;
-                    statusMessage = "";
-                }
-                Game1.activeClickableMenu = this;
-                UpdateLayout();
-            });
+            OpenTargetPicker(TargetFilterMode.All, playSound);
+            return;
+        }
+        if (CanSelectTargetFilter && TryGetFilterAt(x, y, out int filterIndex))
+        {
+            OpenTargetPicker(FilterModes[filterIndex], playSound);
             return;
         }
         if (upgradeButton.containsPoint(x, y) && CanUpgrade)
             ProcessUpgrade();
+    }
+
+    /// <summary>Open the target picker, optionally narrowed to a target probability filter.</summary>
+    private void OpenTargetPicker(TargetFilterMode filter, bool playSound)
+    {
+        if (sourceItem is null)
+            return;
+
+        if (playSound)
+            Game1.playSound("smallSelect");
+        Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem, sourceQuantity, filter), option =>
+        {
+            if (option is not null)
+            {
+                targetOption = option;
+
+                string? selectionError = GetTargetSelectionError();
+                if (selectionError is not null)
+                {
+                    targetOption = null;
+                    statusMessage = selectionError;
+                    Game1.activeClickableMenu = this;
+                    UpdateLayout();
+                    return;
+                }
+
+                hasRolledCurrentSelection = false;
+                isAnimatingRoulette = false;
+                rouletteAnimationTimer = 0f;
+                pendingSource = null;
+                pendingTarget = null;
+                pendingSourceQuantity = 0;
+                rouletteResult = false;
+                statusMessage = "";
+            }
+            Game1.activeClickableMenu = this;
+            UpdateLayout();
+        }, filter);
+    }
+
+    /// <summary>Why the freshly picked target cannot be used, or null when it is valid.</summary>
+    private string? GetTargetSelectionError()
+    {
+        if (sourceItem is null)
+            return "Upgrade unavailable: source item is no longer in your inventory.";
+
+        int? sourceValue = itemValues.GetValue(sourceItem);
+        int? targetValue = targetOption is null ? null : itemValues.GetValue(targetOption.PreviewItem);
+        if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0)
+            return "Upgrade unavailable: target item has no valid value.";
+
+        return TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption?.QualifiedItemId)
+            ? null
+            : "Upgrade unavailable: target must be worth more than the source batch.";
     }
 
     public override void receiveKeyPress(Keys key)
@@ -315,10 +357,9 @@ internal sealed class UpgradeMenu : IClickableMenu
         hoverText = sourceSlot.containsPoint(x, y) ? "Choose an item from your inventory.\nSelection leaves it in your backpack."
             : sourceDecreaseButton.containsPoint(x, y) ? "Decrease source quantity."
             : sourceIncreaseButton.containsPoint(x, y) ? "Increase source quantity."
-            : outputDecreaseButton.containsPoint(x, y) ? "Decrease output quantity."
-            : outputIncreaseButton.containsPoint(x, y) ? "Increase output quantity."
             : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
             : targetSlot.containsPoint(x, y) ? "Choose a target item."
+            : TryGetFilterHoverText(x, y, out string filterHoverText) ? filterHoverText
             : upgradeButton.containsPoint(x, y) && isAnimatingRoulette ? "Upgrade in progress..."
             : upgradeButton.containsPoint(x, y) && hasRolledCurrentSelection ? "Select an item or target to make another attempt."
             : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Attempt an upgrade using the shown chance."
@@ -330,14 +371,33 @@ internal sealed class UpgradeMenu : IClickableMenu
         MenuDrawing.Panel(b, this);
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
         DrawItemSlot(b, sourceSlot, $"Your Item ×{sourceQuantity}", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem), sourceQuantity);
-        DrawItemSlot(b, targetSlot, $"Target ×{outputQuantity}", targetOption?.PreviewItem, targetOption?.Value, outputQuantity, sourceItem is not null);
+        DrawItemSlot(b, targetSlot, $"Target ×{SingleOutputQuantity}", targetOption?.PreviewItem, targetOption?.Value, SingleOutputQuantity, sourceItem is not null);
         DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
-        DrawQuantityControl(b, outputDecreaseButton, outputIncreaseButton, outputQuantity, CanDecreaseOutput, CanIncreaseOutput);
+        DrawTargetFilterButtons(b);
 
-        // Chance and multiplier above UPGRADE button
-        int buttonTop = upgradeButton.bounds.Y;
-        MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, buttonTop - Scale(56), Color.SteelBlue, 1.5f * layoutScale);
-        MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, buttonTop - Scale(24), Color.SteelBlue, layoutScale);
+        Vector2 wheelPosition = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
+        string chanceText = GetChanceText();
+        string multiplierText = GetMultiplierText();
+        Rectangle wheelBounds = RouletteWheel.GetFrameBounds(wheelPosition, layoutScale);
+        int textGap = Scale(2);
+        int textMargin = Scale(2);
+        int availableTop = wheelBounds.Bottom + textMargin;
+        int availableBottom = upgradeButton.bounds.Top - textMargin;
+        int availableHeight = Math.Max(0, availableBottom - availableTop);
+        float chanceScale = 1.8f * layoutScale;
+        float multiplierScale = chanceScale * 0.45f;
+        float textHeight = Game1.smallFont.MeasureString(chanceText).Y * chanceScale
+            + Game1.smallFont.MeasureString(multiplierText).Y * multiplierScale;
+        float fitScale = textHeight <= 0 ? 1f : Math.Min(1f, Math.Max(0f, (availableHeight - textGap) / textHeight));
+        chanceScale *= fitScale;
+        multiplierScale *= fitScale;
+        int chanceHeight = (int)Math.Ceiling(Game1.smallFont.MeasureString(chanceText).Y * chanceScale);
+        int multiplierHeight = (int)Math.Ceiling(Game1.smallFont.MeasureString(multiplierText).Y * multiplierScale);
+        int blockHeight = chanceHeight + textGap + multiplierHeight;
+        int textTop = availableTop + Math.Max(0, (availableHeight - blockHeight) / 2);
+        MenuDrawing.CenteredText(b, chanceText, xPositionOnScreen + width / 2, textTop, Color.SteelBlue, chanceScale);
+        MenuDrawing.CenteredText(b, multiplierText, xPositionOnScreen + width / 2, textTop + chanceHeight + textGap,
+            Color.SteelBlue, multiplierScale);
 
         MenuDrawing.TextButton(b, upgradeButton, "UPGRADE", upgradeButton.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)),
             enabled: CanUpgrade && !isAnimatingRoulette, textScale: layoutScale);
@@ -352,7 +412,6 @@ internal sealed class UpgradeMenu : IClickableMenu
         double wheelChance = currentChance;
         if (HasUpgradeSelection && (isAnimatingRoulette || TryGetUpgradePreview(out wheelChance, out _)))
         {
-            Vector2 wheelPosition = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
             RouletteWheel.Draw(b, wheelFrame, wheelCenter, wheelArrow, wheelPosition, wheelChance, rouletteAnimationTimer,
                 isAnimatingRoulette, rouletteTargetAngle, layoutScale);
         }
@@ -368,8 +427,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         && TryGetUpgradePreview(out _, out _);
     private bool CanDecreaseSource => sourceItem is not null && sourceQuantity > 1;
     private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
-    private bool CanDecreaseOutput => TryGetMinimumOutputQuantity(out int minimumOutput) && outputQuantity > minimumOutput;
-    private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < int.MaxValue;
+    private bool CanSelectTargetFilter => sourceItem is not null;
 
     private string GetChanceText()
     {
@@ -393,11 +451,12 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= 0)
             return false;
 
-        if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        if (!TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption.QualifiedItemId))
             return false;
 
-        chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
-        multiplier = (double)outputQuantity * targetValue.Value / ((double)sourceQuantity * sourceValue.Value);
+        chance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value);
+        multiplier = TargetEconomics.CalculateMultiplier(sourceQuantity, sourceValue.Value, targetValue.Value);
         return true;
     }
 
@@ -446,13 +505,14 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: target item has no valid value.";
                 return;
             }
-            if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+            if (!TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, source.QualifiedItemId,
+                    targetValue.Value, targetPreview.QualifiedItemId))
             {
-                statusMessage = "Upgrade unavailable: target batch value is too low.";
+                statusMessage = "Upgrade unavailable: target must be worth more than the source batch.";
                 return;
             }
 
-            double chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
+            double chance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
 
             // The roll is decided now, but the transaction is applied only after the
@@ -463,7 +523,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             pendingSource = source;
             pendingTarget = targetOption;
             pendingSourceQuantity = sourceQuantity;
-            pendingOutputQuantity = outputQuantity;
             hasRolledCurrentSelection = true;
             isAnimatingRoulette = true;
             rouletteAnimationTimer = 0f;
@@ -483,13 +542,11 @@ internal sealed class UpgradeMenu : IClickableMenu
         Item source = pendingSource;
         Item targetPreview = pendingTarget.PreviewItem;
         int sourceQuantity = pendingSourceQuantity;
-        int outputQuantity = pendingOutputQuantity;
         pendingSource = null;
         pendingTarget = null;
         pendingSourceQuantity = 0;
-        pendingOutputQuantity = 0;
 
-        if (sourceQuantity < 1 || outputQuantity < 1)
+        if (sourceQuantity < 1)
         {
             statusMessage = "Upgrade unavailable: invalid batch quantity.";
             hasRolledCurrentSelection = false;
@@ -500,7 +557,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? targetValue = itemValues.GetValue(targetPreview);
         if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
             || !targetValue.HasValue || targetValue.Value <= 0
-            || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, source.QualifiedItemId,
+                targetValue.Value, targetPreview.QualifiedItemId))
         {
             statusMessage = "Upgrade unavailable: target is no longer valid.";
             hasRolledCurrentSelection = false;
@@ -508,10 +566,10 @@ internal sealed class UpgradeMenu : IClickableMenu
         }
 
         UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview,
-            sourceQuantity, outputQuantity, rouletteResult);
+            sourceQuantity, SingleOutputQuantity, rouletteResult);
         monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; q={sourceQuantity}; sourceValue={sourceValue.Value}; "
-            + $"sourceTotal={(long)sourceQuantity * sourceValue.Value}; target={targetPreview.QualifiedItemId}; r={outputQuantity}; "
-            + $"targetValue={targetValue.Value}; targetTotal={(long)outputQuantity * targetValue.Value}; chance={currentChance:0.####}; "
+            + $"sourceTotal={(long)sourceQuantity * sourceValue.Value}; target={targetPreview.QualifiedItemId}; r={SingleOutputQuantity}; "
+            + $"targetValue={targetValue.Value}; targetTotal={(long)SingleOutputQuantity * targetValue.Value}; chance={currentChance:0.####}; "
             + $"roll={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
 
         if (!transaction.IsSuccess)
@@ -538,51 +596,107 @@ internal sealed class UpgradeMenu : IClickableMenu
     private void ResetQuantityState()
     {
         sourceQuantity = 1;
-        outputQuantity = 1;
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
     }
 
     private void RefreshQuantityState()
     {
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
-        if (availableQuantity > 0)
-            sourceQuantity = Math.Clamp(sourceQuantity, 1, availableQuantity);
-        outputQuantity = Math.Max(1, outputQuantity);
-        EnsureMinimumOutputQuantity();
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
 
+    private bool TryGetFilterAt(int x, int y, out int filterIndex)
+    {
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            if (filterButtons[i].containsPoint(x, y))
+            {
+                filterIndex = i;
+                return true;
+            }
+        }
+
+        filterIndex = -1;
+        return false;
+    }
+
+    private bool TryGetFilterHoverText(int x, int y, out string text)
+    {
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            if (!filterButtons[i].containsPoint(x, y))
+                continue;
+
+            text = CanSelectTargetFilter
+                ? $"Targets with ~{TargetProbabilityFilter.GetChanceText(FilterModes[i])} upgrade chance."
+                : "Select Your Item first.";
+            return true;
+        }
+
+        text = "";
+        return false;
+    }
+
+    private void DrawTargetFilterButtons(SpriteBatch b)
+    {
+        int mouseX = Game1.getMouseX(true);
+        int mouseY = Game1.getMouseY(true);
+        bool enabled = CanSelectTargetFilter;
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            ClickableComponent button = filterButtons[i];
+            MenuDrawing.TextButton(b, button, FilterLabels[i], button.containsPoint(mouseX, mouseY), enabled,
+                GetFilterTextScale(FilterLabels[i]));
+        }
+    }
+
+    private float GetFilterTextScale(string label)
+    {
+        // Labels keep the size they had at the original button width, so growing the
+        // button never grows its text.
+        float naturalWidth = Game1.smallFont.MeasureString(label).X;
+        return naturalWidth <= 0
+            ? layoutScale
+            : Math.Min(layoutScale, (Scale(FilterButtonTextReferenceWidth) - Scale(FilterButtonTextPadding)) / naturalWidth);
+    }
+
     private void ChangeSourceQuantity(int delta)
     {
         RefreshQuantityState();
-        sourceQuantity = Math.Clamp(sourceQuantity + delta, 1, Math.Max(1, availableQuantity));
-        EnsureMinimumOutputQuantity();
+        if (availableQuantity < 1)
+            return;
+
+        int newQuantity = Math.Clamp(sourceQuantity + delta, 1, availableQuantity);
+        if (newQuantity == sourceQuantity)
+            return;
+
+        sourceQuantity = newQuantity;
+        RefreshSelectedTargetForSourceQuantity();
     }
 
-    private void ChangeOutputQuantity(int delta)
+    private void RefreshSelectedTargetForSourceQuantity()
     {
-        if (delta < 0 && TryGetMinimumOutputQuantity(out int minimumOutput))
-            outputQuantity = Math.Max(minimumOutput, outputQuantity - 1);
-        else if (delta > 0 && outputQuantity < int.MaxValue)
-            outputQuantity++;
-    }
-
-    private void EnsureMinimumOutputQuantity()
-    {
-        if (TryGetMinimumOutputQuantity(out int minimumOutput))
-            outputQuantity = Math.Max(outputQuantity, minimumOutput);
-    }
-
-    private bool TryGetMinimumOutputQuantity(out int minimumOutput)
-    {
-        minimumOutput = 0;
         if (sourceItem is null || targetOption is null)
-            return false;
+            return;
 
         int? sourceValue = itemValues.GetValue(sourceItem);
-        return sourceValue.HasValue
-            && upgradeCalculator.TryGetMinimumTargetQuantity(sourceQuantity, sourceValue.Value, targetOption.Value, out minimumOutput);
+        int? targetValue = itemValues.GetValue(targetOption.PreviewItem);
+        if (!sourceValue.HasValue || !targetValue.HasValue
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetOption.QualifiedItemId))
+        {
+            targetOption = null;
+            hasRolledCurrentSelection = false;
+            statusMessage = "Selected target no longer qualifies for this source quantity.";
+            return;
+        }
+
+        targetOption = targetOption with
+        {
+            BatchChance = TargetEconomics.CalculateChance(sourceQuantity, sourceValue.Value, targetValue.Value),
+            BatchMultiplier = TargetEconomics.CalculateMultiplier(sourceQuantity, sourceValue.Value, targetValue.Value)
+        };
     }
 
     private void DrawQuantityControl(SpriteBatch b, ClickableComponent decrease, ClickableComponent increase, int quantity, bool canDecrease, bool canIncrease)

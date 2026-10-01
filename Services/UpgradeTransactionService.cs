@@ -20,20 +20,25 @@ public sealed class UpgradeTransactionService
         return Apply(player, sourceItem, targetPreview, 1, 1, success);
     }
 
+    /// <summary>
+    /// Applies one upgrade roll: consumes <paramref name="sourceQuantity"/> source items and, on success,
+    /// creates exactly one target item. <paramref name="outputQuantity"/> must be 1 — a single operation
+    /// can never produce more than one output item.
+    /// </summary>
     public UpgradeTransactionResult Apply(Farmer player, Item sourceItem, Item? targetPreview,
         int sourceQuantity, int outputQuantity, bool success)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(sourceItem);
 
-        if (sourceQuantity < 1 || outputQuantity < 1)
+        if (sourceQuantity < 1 || outputQuantity != 1)
             return new(UpgradeTransactionStatus.InvalidQuantity);
 
         int? sourceValue = getValue(sourceItem);
         int? targetValue = targetPreview is null ? null : getValue(targetPreview);
-        if (!sourceValue.HasValue || sourceValue.Value <= 0 || !targetValue.HasValue || targetValue.Value <= 0
-            || !calculator.IsBatchTargetValueValid(
-                sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        if (!sourceValue.HasValue || !targetValue.HasValue
+            || !TargetEconomics.IsEligible(sourceQuantity, sourceValue.Value, sourceItem.QualifiedItemId,
+                targetValue.Value, targetPreview?.QualifiedItemId))
         {
             return new(UpgradeTransactionStatus.InvalidTarget);
         }
