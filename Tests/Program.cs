@@ -8,6 +8,30 @@ var inventoryPlanner = new InventoryBatchPlanner();
 var acquisitionIndexer = new AcquisitionProfileIndexer();
 var pointsEngine = new PointsValuationEngine();
 
+// Final-price inputs are a separate, immutable production graph. This is intentionally
+// not wired into acquisition valuation or gameplay until the calculator stage.
+ProductionIngredient[] recipeIngredients = [new("(O)Mod.Author_Ore", 5)];
+var productionRecipe = new ProductionRecipe("Data/CraftingRecipes:Mod.Author_Bar", recipeIngredients,
+    new ProductionOutput("(O)Mod.Author_Bar", 2));
+recipeIngredients[0] = new ProductionIngredient("(O)Changed", 1);
+if (productionRecipe.SourceId != "Data/CraftingRecipes:Mod.Author_Bar"
+    || productionRecipe.Ingredients.Count != 1
+    || productionRecipe.Ingredients[0].ItemId != "(O)Mod.Author_Ore"
+    || productionRecipe.Ingredients[0].Quantity != 5
+    || productionRecipe.Output.ItemId != "(O)Mod.Author_Bar"
+    || productionRecipe.Output.Quantity != 2)
+{
+    throw new InvalidOperationException("Production recipes must preserve source, modded IDs, quantities, and copied ingredients.");
+}
+
+ExpectModelException(() => new ProductionIngredient(" ", 1));
+ExpectModelException(() => new ProductionIngredient("(O)Ore", 0));
+ExpectModelException(() => new ProductionOutput("(O)Bar", 0));
+ExpectModelException(() => new ProductionRecipe(" ", [new ProductionIngredient("(O)Ore", 1)],
+    new ProductionOutput("(O)Bar", 1)));
+ExpectModelException(() => new ProductionRecipe("Data/CraftingRecipes:Bar", Array.Empty<ProductionIngredient>(),
+    new ProductionOutput("(O)Bar", 1)));
+
 // Acquisition profiles stay pure domain data: every route is evidenced and an
 // item may retain independent routes instead of being forced into one source type.
 var metrics = new AcquisitionMetrics(75, 60, 40, 80, 25, 10, 0);
