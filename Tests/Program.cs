@@ -6,6 +6,58 @@ var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
 
+// Acquisition profiles stay pure domain data: every route is evidenced and an
+// item may retain independent routes instead of being forced into one source type.
+var metrics = new AcquisitionMetrics(75, 60, 40, 80, 25, 10, 0);
+if (metrics.Difficulty != 75 || metrics.Farmability != 0)
+    throw new InvalidOperationException("Acquisition metrics must retain normalized values.");
+
+foreach (int invalidMetric in new[] { AcquisitionMetrics.Minimum - 1, AcquisitionMetrics.Maximum + 1 })
+    ExpectModelException(() => new AcquisitionMetrics(invalidMetric, 0, 0, 0, 0, 0, 0));
+
+var fishRoute = new AcquisitionRoute(AcquisitionKind.Fishing, metrics, AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Data/Fish", "(O)128"), new AcquisitionEvidence("Data/Locations", "Beach", "RAINY")]);
+if (fishRoute.Kind != AcquisitionKind.Fishing || fishRoute.Evidence.Count != 2
+    || fishRoute.Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("A valid acquisition route must retain its kind, metrics, confidence, and evidence.");
+}
+
+var unknownRoute = new AcquisitionRoute(AcquisitionKind.Unknown,
+    new AcquisitionMetrics(50, 50, 50, 50, 50, 50, 50), AcquisitionConfidence.Unknown,
+    [new AcquisitionEvidence("Indexer", "No reliable acquisition data")]);
+if (unknownRoute.Kind != AcquisitionKind.Unknown || unknownRoute.Confidence != AcquisitionConfidence.Unknown)
+    throw new InvalidOperationException("An unknown route must remain explicit and low-assumption.");
+
+var coalRoutes = new[]
+{
+    new AcquisitionRoute(AcquisitionKind.Mining, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Locations", "Mine ore nodes")]),
+    new AcquisitionRoute(AcquisitionKind.MonsterDrop, metrics, AcquisitionConfidence.Medium,
+        [new AcquisitionEvidence("Drop index", "Dust Spirit")]),
+    new AcquisitionRoute(AcquisitionKind.Machine, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Machines", "Charcoal Kiln")]),
+    new AcquisitionRoute(AcquisitionKind.Shop, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Shops", "Clint")])
+};
+var coalProfile = new AcquisitionProfile("(O)Coal", coalRoutes);
+coalRoutes[0] = unknownRoute;
+if (coalProfile.Routes.Count != 4 || coalProfile.Routes[0].Kind != AcquisitionKind.Mining)
+    throw new InvalidOperationException("A profile must preserve multiple routes independently of its input collection.");
+
+if (new ValuationBreakdown(coalProfile, 0).Profile != coalProfile)
+    throw new InvalidOperationException("A valuation breakdown must retain its profile without valuing it yet.");
+
+ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Fishing, metrics, AcquisitionConfidence.Unknown,
+    [new AcquisitionEvidence("Data/Fish", "(O)128")]));
+ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Unknown, metrics, AcquisitionConfidence.Low,
+    [new AcquisitionEvidence("Indexer", "Missing")]));
+ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Shop, metrics, AcquisitionConfidence.High,
+    Array.Empty<AcquisitionEvidence>()));
+ExpectModelException(() => new AcquisitionProfile(" ", [fishRoute]));
+ExpectModelException(() => new AcquisitionProfile("(O)128", Array.Empty<AcquisitionRoute>()));
+ExpectModelException(() => new ValuationBreakdown(coalProfile, -1));
+
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
 const int selectedSourceValue = 10;
@@ -619,6 +671,20 @@ void ExpectException<TException>(int source, int target, string parameter) where
         return;
     }
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for {source} -> {target}.");
+}
+
+void ExpectModelException(Action action)
+{
+    try
+    {
+        action();
+    }
+    catch (ArgumentException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException("Expected invalid acquisition-model input to be rejected.");
 }
 
 void ExpectFilter(TargetFilterMode mode, double chance, bool expected)
