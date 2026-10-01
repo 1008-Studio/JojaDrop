@@ -235,6 +235,61 @@ if (TargetProbabilityFilter.GetChanceText(TargetFilterMode.X2) != "50%"
     throw new InvalidOperationException("Unexpected filter chance display text.");
 }
 
+// Source quantity in the filters: every match prices the whole selected source
+// total SUM(unit value * quantity), never the price of a single unit.
+int baitTotal = calculator.GetTotalSourceValue((1, 20));
+if (baitTotal != 20)
+    throw new InvalidOperationException($"Bait x20 @ 1g must total 20g, got {baitTotal}g.");
+
+foreach ((TargetFilterMode mode, int targetValue) in new[]
+{
+    (TargetFilterMode.X2, 40),
+    (TargetFilterMode.X3, 60),
+    (TargetFilterMode.X5, 100),
+    (TargetFilterMode.X10, 200)
+})
+{
+    if (!TargetProbabilityFilter.Matches(mode, calculator.CalculateChance(baitTotal, targetValue)))
+        throw new InvalidOperationException($"{mode} must match a ~{targetValue}g target for a 20g source total.");
+}
+
+// One unit of the source (1g) must never satisfy those matches — that was the bug.
+if (TargetProbabilityFilter.Matches(TargetFilterMode.X2, calculator.CalculateChance(1, 40)))
+    throw new InvalidOperationException("The filter must not use the single-unit source price.");
+
+// Several selected sources sum first: A x20 @ 1g + B x10 @ 10g = 120g.
+int multiSourceTotal = calculator.GetTotalSourceValue((1, 20), (10, 10));
+if (multiSourceTotal != 120)
+    throw new InvalidOperationException($"Selected sources must total 120g, got {multiSourceTotal}g.");
+
+foreach ((TargetFilterMode mode, int targetValue) in new[]
+{
+    (TargetFilterMode.X2, 240),
+    (TargetFilterMode.X3, 360),
+    (TargetFilterMode.X5, 600),
+    (TargetFilterMode.X10, 1200)
+})
+{
+    if (!TargetProbabilityFilter.Matches(mode, calculator.CalculateChance(multiSourceTotal, targetValue)))
+        throw new InvalidOperationException($"{mode} must match a ~{targetValue}g target for a 120g source total.");
+}
+
+// Neither one of the selected sources may drive the match on its own.
+if (TargetProbabilityFilter.Matches(TargetFilterMode.X2, calculator.CalculateChance(1, 240))
+    || TargetProbabilityFilter.Matches(TargetFilterMode.X2, calculator.CalculateChance(10, 240)))
+{
+    throw new InvalidOperationException("The filter must price all selected sources, not one of them.");
+}
+
+// A single selected item at quantity one keeps the original unit total.
+if (calculator.GetTotalSourceValue((10, 1)) != 10)
+    throw new InvalidOperationException("A quantity of one must keep the single-unit total of 10g.");
+
+// The provider receives the quantity per picker open and keeps no source-value cache,
+// so raising a source from x10 to x20 switches the filter total from 10g to 20g.
+if (calculator.GetTotalSourceValue((1, 10)) == calculator.GetTotalSourceValue((1, 20)))
+    throw new InvalidOperationException("A quantity change must change the source total.");
+
 
 for (int i = 0; i < 10; i++)
 {
