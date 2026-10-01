@@ -290,6 +290,30 @@ if (calculator.GetTotalSourceValue((10, 1)) != 10)
 if (calculator.GetTotalSourceValue((1, 10)) == calculator.GetTotalSourceValue((1, 20)))
     throw new InvalidOperationException("A quantity change must change the source total.");
 
+// Final regression: the headline combined scenario drives every filter, the filter
+// input equals the value the upgrade roll spends, and the unfiltered picker is untouched.
+int combinedTotal = calculator.GetTotalSourceValue((1, 20), (10, 10));
+if (combinedTotal != 120
+    || !TargetProbabilityFilter.Matches(TargetFilterMode.X2, calculator.CalculateChance(combinedTotal, 240))
+    || !TargetProbabilityFilter.Matches(TargetFilterMode.X3, calculator.CalculateChance(combinedTotal, 360))
+    || !TargetProbabilityFilter.Matches(TargetFilterMode.X5, calculator.CalculateChance(combinedTotal, 600))
+    || !TargetProbabilityFilter.Matches(TargetFilterMode.X10, calculator.CalculateChance(combinedTotal, 1200)))
+{
+    throw new InvalidOperationException("A 120g combined source must drive x2/x3/x5/x10 exactly as specified.");
+}
+
+// chance = totalSourceValue / targetValue is the same number the batch roll uses
+// (q source items of value S spent for one target): q * S / (1 * T).
+if (Math.Abs(calculator.CalculateChance(baitTotal, 40) - calculator.CalculateChance(20, 1, 1, 40)) > 1e-12)
+    throw new InvalidOperationException("Filter chance must equal the upgrade roll chance for the same total.");
+
+// The picker without a filter (All mode) keeps every candidate regardless of totals.
+if (!TargetProbabilityFilter.Matches(TargetFilterMode.All, calculator.CalculateChance(baitTotal, 40))
+    || !TargetProbabilityFilter.Matches(TargetFilterMode.All, calculator.CalculateChance(combinedTotal, 240)))
+{
+    throw new InvalidOperationException("The unfiltered picker must keep every candidate.");
+}
+
 
 for (int i = 0; i < 10; i++)
 {
