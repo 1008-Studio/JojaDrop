@@ -1,4 +1,4 @@
-# JojaDrop
+# JojaDrop 
 
 JojaDrop is a SMAPI mod for Stardew Valley with an item upgrader: choose a source item and a more valuable target, then attempt the upgrade with probability `sourceValue / targetValue`.
 
@@ -134,5 +134,6 @@ Milestone v0.3
 - [ ] Multiplayer
 
 Multiplayer synchronization, upgrade animation, persistent state, broader item valuation, and other mod integrations are future work.
-#   . g i t h u b  
+#   . g i t h u b 
+ 
  
