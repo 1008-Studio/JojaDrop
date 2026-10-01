@@ -199,6 +199,32 @@ ExpectFilteredSequence(TargetFilterMode.X10, sortedCandidateChances, [0.1]);
 ExpectFilteredSequence(TargetFilterMode.X5, [0.5, 0.4], []);
 ExpectFilteredSequence(TargetFilterMode.X2, [], []);
 
+// End-to-end filter expectations for a 1000g source: every shown target really sits
+// near the multiplier the button promises (chance ≈ 1 / N).
+if (!Enum.GetValues<TargetFilterMode>().SequenceEqual(
+    new[] { TargetFilterMode.All, TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10 }))
+{
+    throw new InvalidOperationException("Unexpected target filter modes.");
+}
+
+int[] sampleTargetValues = [1000, 1500, 2000, 2500, 3334, 5000, 10000, 20000, 100000];
+double[] sampleChances = sampleTargetValues.Select(value => calculator.CalculateChance(1000, value)).ToArray();
+foreach ((TargetFilterMode mode, int[] expected) in new[]
+{
+    (TargetFilterMode.All, sampleTargetValues),
+    (TargetFilterMode.X2, new[] { 2000, 2500 }),
+    (TargetFilterMode.X3, new[] { 2500, 3334 }),
+    (TargetFilterMode.X5, new[] { 5000 }),
+    (TargetFilterMode.X10, new[] { 10000 })
+})
+{
+    int[] actual = sampleTargetValues
+        .Where((_, index) => TargetProbabilityFilter.Matches(mode, sampleChances[index]))
+        .ToArray();
+    if (!actual.SequenceEqual(expected))
+        throw new InvalidOperationException($"Unexpected {mode} targets for a 1000g source: [{string.Join(", ", actual)}].");
+}
+
 // Display text used by the UI tooltips.
 if (TargetProbabilityFilter.GetChanceText(TargetFilterMode.X2) != "50%"
     || TargetProbabilityFilter.GetChanceText(TargetFilterMode.X3) != "33%"
