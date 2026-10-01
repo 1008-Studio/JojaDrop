@@ -27,3 +27,4 @@ GameFiles/
 *.exe
 *.pdb
 *.zip
+docs/refactoring-audit.md

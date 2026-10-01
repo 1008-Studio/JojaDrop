@@ -402,10 +402,10 @@ AcquisitionProfile missingRuntime = profileCache.Build("(O)Custom.Missing");
 AcquisitionProfile invalidOverride = profileCache.Build("(O)Invalid.Override");
 if (missingRuntime.Routes.Single().Kind != AcquisitionKind.Unknown || missingRuntime.Routes.Single().Confidence != AcquisitionConfidence.Low
     || invalidOverride.Routes.Single().Kind != AcquisitionKind.Unknown
-    || !cacheDiagnostics.Any(message => message.Contains("Custom.Missing", StringComparison.Ordinal))
+    || cacheDiagnostics.Any(message => message.Contains("Custom.Missing", StringComparison.Ordinal))
     || !cacheDiagnostics.Any(message => message.Contains("Invalid.Override", StringComparison.Ordinal)))
 {
-    throw new InvalidOperationException("Missing metadata and invalid overrides must retain a logged conservative fallback.");
+    throw new InvalidOperationException("Missing metadata must retain a quiet conservative fallback; invalid overrides must be logged.");
 }
 
 int commonFishPoints = pointsEngine.Evaluate(moddedFishFirst, 100).Points;
