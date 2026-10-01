@@ -20,6 +20,8 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int ButtonHeight = 64;
     private const int ButtonFooterGap = 64;
     private const int QuantityButtonSize = 36;
+    // One upgrade operation always produces exactly one target item.
+    private const int SingleOutputQuantity = 1;
     private const int StatusBottomOffset = 40;
     private const int ItemNameGap = 12;
     private const int ItemValueGap = 40;
@@ -62,7 +64,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     private Item? sourceItem;
     private TargetItemOption? targetOption;
     private int sourceQuantity = 1;
-    private int outputQuantity = 1;
     private int availableQuantity;
     private string hoverText = "";
     private string statusMessage = "";
@@ -79,7 +80,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     private Item? pendingSource;
     private TargetItemOption? pendingTarget;
     private int pendingSourceQuantity;
-    private int pendingOutputQuantity;
 
     public UpgradeMenu(ItemValueService itemValues, UpgradeCalculator upgradeCalculator, UpgradeRoller upgradeRoller,
         UpgradeTransactionService transactionService, TargetItemProvider targetItemProvider, IMonitor monitor,
@@ -208,7 +208,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             pendingSource = null;
             pendingTarget = null;
             pendingSourceQuantity = 0;
-            pendingOutputQuantity = 0;
             rouletteResult = false;
         }
         else if (sourceItem is not null)
@@ -245,7 +244,6 @@ internal sealed class UpgradeMenu : IClickableMenu
                     pendingSource = null;
                     pendingTarget = null;
                     pendingSourceQuantity = 0;
-                    pendingOutputQuantity = 0;
                     rouletteResult = false;
                     statusMessage = "";
                 }
@@ -291,7 +289,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             if (option is not null)
             {
                 targetOption = option;
-                outputQuantity = 1;
                 if (sourceItem is not null)
                     RefreshQuantityState();
 
@@ -299,7 +296,6 @@ internal sealed class UpgradeMenu : IClickableMenu
                 if (selectionError is not null)
                 {
                     targetOption = null;
-                    outputQuantity = 1;
                     statusMessage = selectionError;
                     Game1.activeClickableMenu = this;
                     UpdateLayout();
@@ -312,7 +308,6 @@ internal sealed class UpgradeMenu : IClickableMenu
                 pendingSource = null;
                 pendingTarget = null;
                 pendingSourceQuantity = 0;
-                pendingOutputQuantity = 0;
                 rouletteResult = false;
                 statusMessage = "";
             }
@@ -334,7 +329,7 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         // One upgrade operation always outputs exactly one item, so the target
         // must be worth at least the whole source batch (chance = q * S / T <= 100%).
-        return upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value)
+        return upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value)
             ? null
             : "Upgrade unavailable: target batch value is too low.";
     }
@@ -381,7 +376,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         MenuDrawing.Panel(b, this);
         MenuDrawing.CenteredText(b, "JojaDrop", xPositionOnScreen + width / 2, yPositionOnScreen + Scale(TitleOffset), scale: 1.5f * layoutScale);
         DrawItemSlot(b, sourceSlot, $"Your Item ×{sourceQuantity}", sourceItem, sourceItem is null ? null : itemValues.GetValue(sourceItem), sourceQuantity);
-        DrawItemSlot(b, targetSlot, $"Target ×{outputQuantity}", targetOption?.PreviewItem, targetOption?.Value, outputQuantity, sourceItem is not null);
+        DrawItemSlot(b, targetSlot, $"Target ×{SingleOutputQuantity}", targetOption?.PreviewItem, targetOption?.Value, SingleOutputQuantity, sourceItem is not null);
         DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
         DrawTargetFilterButtons(b);
 
@@ -443,11 +438,11 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (!sourceValue.HasValue || !targetValue.HasValue || sourceValue.Value <= 0 || targetValue.Value <= 0)
             return false;
 
-        if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+        if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
             return false;
 
-        chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
-        multiplier = (double)outputQuantity * targetValue.Value / ((double)sourceQuantity * sourceValue.Value);
+        chance = upgradeCalculator.CalculateChance(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value);
+        multiplier = (double)SingleOutputQuantity * targetValue.Value / ((double)sourceQuantity * sourceValue.Value);
         return true;
     }
 
@@ -496,13 +491,13 @@ internal sealed class UpgradeMenu : IClickableMenu
                 statusMessage = "Upgrade unavailable: target item has no valid value.";
                 return;
             }
-            if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+            if (!upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
             {
                 statusMessage = "Upgrade unavailable: target batch value is too low.";
                 return;
             }
 
-            double chance = upgradeCalculator.CalculateChance(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value);
+            double chance = upgradeCalculator.CalculateChance(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value);
             bool success = upgradeRoller.Roll(chance);
 
             // The roll is decided now, but the transaction is applied only after the
@@ -513,7 +508,6 @@ internal sealed class UpgradeMenu : IClickableMenu
             pendingSource = source;
             pendingTarget = targetOption;
             pendingSourceQuantity = sourceQuantity;
-            pendingOutputQuantity = outputQuantity;
             hasRolledCurrentSelection = true;
             isAnimatingRoulette = true;
             rouletteAnimationTimer = 0f;
@@ -533,13 +527,11 @@ internal sealed class UpgradeMenu : IClickableMenu
         Item source = pendingSource;
         Item targetPreview = pendingTarget.PreviewItem;
         int sourceQuantity = pendingSourceQuantity;
-        int outputQuantity = pendingOutputQuantity;
         pendingSource = null;
         pendingTarget = null;
         pendingSourceQuantity = 0;
-        pendingOutputQuantity = 0;
 
-        if (sourceQuantity < 1 || outputQuantity < 1)
+        if (sourceQuantity < 1)
         {
             statusMessage = "Upgrade unavailable: invalid batch quantity.";
             hasRolledCurrentSelection = false;
@@ -550,7 +542,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         int? targetValue = itemValues.GetValue(targetPreview);
         if (!IsTargetValid(targetPreview) || !sourceValue.HasValue || sourceValue.Value <= 0
             || !targetValue.HasValue || targetValue.Value <= 0
-            || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, outputQuantity, sourceValue.Value, targetValue.Value))
+            || !upgradeCalculator.IsBatchTargetValueValid(sourceQuantity, SingleOutputQuantity, sourceValue.Value, targetValue.Value))
         {
             statusMessage = "Upgrade unavailable: target is no longer valid.";
             hasRolledCurrentSelection = false;
@@ -558,10 +550,10 @@ internal sealed class UpgradeMenu : IClickableMenu
         }
 
         UpgradeTransactionResult transaction = transactionService.Apply(Game1.player, source, targetPreview,
-            sourceQuantity, outputQuantity, rouletteResult);
+            sourceQuantity, SingleOutputQuantity, rouletteResult);
         monitor.Log($"Upgrade attempt: source={source.QualifiedItemId}; q={sourceQuantity}; sourceValue={sourceValue.Value}; "
-            + $"sourceTotal={(long)sourceQuantity * sourceValue.Value}; target={targetPreview.QualifiedItemId}; r={outputQuantity}; "
-            + $"targetValue={targetValue.Value}; targetTotal={(long)outputQuantity * targetValue.Value}; chance={currentChance:0.####}; "
+            + $"sourceTotal={(long)sourceQuantity * sourceValue.Value}; target={targetPreview.QualifiedItemId}; r={SingleOutputQuantity}; "
+            + $"targetValue={targetValue.Value}; targetTotal={(long)SingleOutputQuantity * targetValue.Value}; chance={currentChance:0.####}; "
             + $"roll={(rouletteResult ? "success" : "fail")}; transaction={transaction.Status}.", LogLevel.Trace);
 
         if (!transaction.IsSuccess)
@@ -588,7 +580,6 @@ internal sealed class UpgradeMenu : IClickableMenu
     private void ResetQuantityState()
     {
         sourceQuantity = 1;
-        outputQuantity = 1;
         availableQuantity = sourceItem is null ? 0 : inventory.GetCompatibleQuantity(Game1.player, sourceItem);
     }
 
