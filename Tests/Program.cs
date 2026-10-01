@@ -167,6 +167,7 @@ if (finalPointsCalculator.Calculate("(O)Large", new Dictionary<string, int>
         new ProductionOutput("(O)Large", 1))]).Points != int.MaxValue)
 {
     throw new InvalidOperationException("Large recipe arithmetic must remain bounded at the JojaDrop points limit.");
+}
 
 var cacheRecipe = new ProductionRecipe("Cache", [new ProductionIngredient("(O)Input", 1)], new ProductionOutput("(O)Output", 1));
 if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 100, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 90
@@ -175,7 +176,6 @@ if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 100, ["(O)
 finalPointsCache.Invalidate();
 if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 200, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 180)
     throw new InvalidOperationException("Invalidating final points must rebuild dependent valuations.");
-}
 
 // Acquisition profiles stay pure domain data: every route is evidenced and an
 // item may retain independent routes instead of being forced into one source type.
