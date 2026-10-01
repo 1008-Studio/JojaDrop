@@ -1,12 +1,13 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewValley;
+using StardewValley.BellsAndWhistles;
 using StardewValley.Menus;
 
 namespace JojaDrop.UI;
 
 /// <summary>
-/// Draws a two-sector wheel (green = success share of chance, red = fail share) with pixel-art overlays.
+/// Draws a two-sector wheel (Joja blue = success share of chance, red = fail share) with pixel-art overlays.
 /// The frame, sectors, and center stay fixed while the arrow spins above them.
 /// </summary>
 internal static class RouletteWheel
@@ -42,21 +43,21 @@ internal static class RouletteWheel
     }
 
     /// <summary>
-    /// Picks a random stopping point inside the winning (green) or losing (red) sector.
+    /// Picks a random stopping point inside the winning (Joja blue) or losing (red) sector.
     /// Returns an angle measured from 12 o'clock, clockwise — the same frame the wheel uses.
     /// </summary>
     public static float CalculateTargetAngle(double chance, bool success, Random? rng = null)
     {
         rng ??= Random.Shared;
-        float greenAngle = Math.Clamp((float)chance * MathF.PI * 2f, 0f, MathF.PI * 2f);
-        float redAngle = MathF.PI * 2f - greenAngle;
+        float winningAngle = Math.Clamp((float)chance * MathF.PI * 2f, 0f, MathF.PI * 2f);
+        float redAngle = MathF.PI * 2f - winningAngle;
 
         // Uniform position inside the sector, kept 5% away from both sector edges.
         float t = 0.05f + (float)rng.NextDouble() * 0.9f;
 
         if (success)
-            return greenAngle <= 0f ? 0f : greenAngle * t;
-        return redAngle <= 0f ? greenAngle : greenAngle + redAngle * t;
+            return winningAngle <= 0f ? 0f : winningAngle * t;
+        return redAngle <= 0f ? winningAngle : winningAngle + redAngle * t;
     }
 
     public static void Draw(
@@ -93,7 +94,7 @@ internal static class RouletteWheel
         (int)MathF.Round(center.X - size / 2f), (int)MathF.Round(center.Y - size / 2f), size, size);
 
     /// <summary>Returns the needle direction in radians (0 = up / 12 o'clock).</summary>
-    private static float CalculatePointerAngle(float progress, bool isSpinning, float targetAngle)
+    public static float CalculatePointerAngle(float progress, bool isSpinning, float targetAngle)
     {
         if (!isSpinning)
             return 0f; // neutral: pointing up
@@ -107,22 +108,23 @@ internal static class RouletteWheel
 
     private static void DrawWheel(SpriteBatch b, Vector2 center, float radius, double chance, Texture2D pixel)
     {
-        float greenAngle = Math.Clamp((float)chance * MathF.PI * 2f, 0f, MathF.PI * 2f);
+        float winningAngle = Math.Clamp((float)chance * MathF.PI * 2f, 0f, MathF.PI * 2f);
         float startAngle = -MathF.PI / 2f; // 12 o'clock
 
-        Color green = new Color(60, 180, 75);
+        // The winning (success) sector uses the official Joja blue from the game's palette.
+        Color winning = SpriteText.color_JojaBlue;
         Color red = new Color(196, 54, 54);
         Color border = new Color(35, 25, 18);
 
-        // Red first, green on top (green may overlap red by a sub-pixel, covered by the border line).
-        DrawWedge(b, center, radius, startAngle + greenAngle, MathF.PI * 2f - greenAngle, red, pixel, WheelLayerDepth);
-        if (greenAngle > 0.0005f)
-            DrawWedge(b, center, radius, startAngle, greenAngle, green, pixel, WheelLayerDepth);
+        // Red first, winning sector on top (it may overlap red by a sub-pixel, covered by the border line).
+        DrawWedge(b, center, radius, startAngle + winningAngle, MathF.PI * 2f - winningAngle, red, pixel, WheelLayerDepth);
+        if (winningAngle > 0.0005f)
+            DrawWedge(b, center, radius, startAngle, winningAngle, winning, pixel, WheelLayerDepth);
 
         // Radiating border lines at both sector edges.
-        if (greenAngle > 0.0005f)
-            DrawLine(b, center, PointAt(center, startAngle + greenAngle, radius), border, 2.5f, pixel, WheelLayerDepth + 0.001f);
-        if (greenAngle < MathF.PI * 2f - 0.0005f)
+        if (winningAngle > 0.0005f)
+            DrawLine(b, center, PointAt(center, startAngle + winningAngle, radius), border, 2.5f, pixel, WheelLayerDepth + 0.001f);
+        if (winningAngle < MathF.PI * 2f - 0.0005f)
             DrawLine(b, center, PointAt(center, startAngle, radius), border, 2.5f, pixel, WheelLayerDepth + 0.001f);
 
     }
