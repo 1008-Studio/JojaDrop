@@ -1,3 +1,4 @@
+using JojaDrop.Models;
 using JojaDrop.Services;
 using StardewValley;
 
@@ -82,6 +83,117 @@ foreach (int source in new[] { 0, -1, int.MinValue })
 
 foreach (int target in new[] { 0, -1, int.MinValue })
     ExpectException<ArgumentOutOfRangeException>(1000, target, "targetValue");
+
+// Target probability filter: range configuration.
+if (!TargetProbabilityFilter.TryGetRange(TargetFilterMode.X2, out double x2Min, out double x2Max)
+    || Math.Abs(x2Min - 0.4) > 1e-12 || Math.Abs(x2Max - 0.6) > 1e-12)
+{
+    throw new InvalidOperationException("The x2 filter must cover 40%..60%.");
+}
+
+if (TargetProbabilityFilter.TryGetRange(TargetFilterMode.All, out _, out _))
+    throw new InvalidOperationException("The All mode must not define a probability range.");
+
+foreach (TargetFilterMode mode in new[] { TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10 })
+{
+    if (!TargetProbabilityFilter.TryGetRange(mode, out double min, out double max) || !(min < max))
+        throw new InvalidOperationException($"Filter {mode} must expose an ordered probability range.");
+
+    double center = TargetProbabilityFilter.GetCenter(mode)!.Value;
+    if (center < min || center > max || !TargetProbabilityFilter.Matches(mode, center))
+        throw new InvalidOperationException($"Filter {mode} must accept its own center {center}.");
+}
+
+// The All mode never filters probabilities.
+foreach (double chance in new[] { 0d, 0.37d, 1d, double.NaN })
+{
+    if (!TargetProbabilityFilter.Matches(TargetFilterMode.All, chance))
+        throw new InvalidOperationException("The All mode must keep every probability.");
+}
+
+// Invalid probabilities never match a probability filter.
+foreach (TargetFilterMode mode in new[] { TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10 })
+{
+    if (TargetProbabilityFilter.Matches(mode, double.NaN)
+        || TargetProbabilityFilter.Matches(mode, 0d)
+        || TargetProbabilityFilter.Matches(mode, 1d)
+        || TargetProbabilityFilter.Matches(mode, calculator.CalculateChance(200, 100)))
+    {
+        throw new InvalidOperationException($"Filter {mode} must reject zero, one, invalid and non-upgrade probabilities.");
+    }
+}
+
+// x2: 40%..60% inclusive, everything outside excluded.
+foreach (var (sourceValue, targetValue, expected) in new[]
+{
+    (39, 100, false),
+    (40, 100, true),
+    (45, 100, true),
+    (50, 100, true),
+    (60, 100, true),
+    (61, 100, false)
+})
+{
+    ExpectFilter(TargetFilterMode.X2, calculator.CalculateChance(sourceValue, targetValue), expected);
+}
+
+// x3: center 1/3 with the shared relative range.
+ExpectFilter(TargetFilterMode.X3, calculator.CalculateChance(1, 3), true);
+foreach (var (sourceValue, targetValue, expected) in new[]
+{
+    (26, 100, false),
+    (27, 100, true),
+    (33, 100, true),
+    (40, 100, true),
+    (41, 100, false)
+})
+{
+    ExpectFilter(TargetFilterMode.X3, calculator.CalculateChance(sourceValue, targetValue), expected);
+}
+
+// x5: center 20%.
+ExpectFilter(TargetFilterMode.X5, calculator.CalculateChance(20, 100), true);
+foreach (var (sourceValue, targetValue, expected) in new[]
+{
+    (15, 100, false),
+    (16, 100, true),
+    (24, 100, true),
+    (25, 100, false)
+})
+{
+    ExpectFilter(TargetFilterMode.X5, calculator.CalculateChance(sourceValue, targetValue), expected);
+}
+
+// x10: center 10%.
+ExpectFilter(TargetFilterMode.X10, calculator.CalculateChance(10, 100), true);
+foreach (var (sourceValue, targetValue, expected) in new[]
+{
+    (7, 100, false),
+    (8, 100, true),
+    (12, 100, true),
+    (13, 100, false)
+})
+{
+    ExpectFilter(TargetFilterMode.X10, calculator.CalculateChance(sourceValue, targetValue), expected);
+}
+
+// Filtering can only remove candidates, never add unsupported ones.
+double[] candidateChances = [0.05, 0.39, 0.4, 0.5, 0.6, 0.61, 0.9, 1d];
+if (candidateChances.Count(chance => TargetProbabilityFilter.Matches(TargetFilterMode.X2, chance)) != 3
+    || candidateChances.Count(chance => TargetProbabilityFilter.Matches(TargetFilterMode.All, chance)) != candidateChances.Length)
+{
+    throw new InvalidOperationException("The probability filter must only narrow the existing candidate list.");
+}
+
+// Display text used by the UI tooltips.
+if (TargetProbabilityFilter.GetChanceText(TargetFilterMode.X2) != "50%"
+    || TargetProbabilityFilter.GetChanceText(TargetFilterMode.X3) != "33%"
+    || TargetProbabilityFilter.GetChanceText(TargetFilterMode.X5) != "20%"
+    || TargetProbabilityFilter.GetChanceText(TargetFilterMode.X10) != "10%"
+    || TargetProbabilityFilter.GetChanceText(TargetFilterMode.All) != "")
+{
+    throw new InvalidOperationException("Unexpected filter chance display text.");
+}
 
 
 for (int i = 0; i < 10; i++)
@@ -236,6 +348,13 @@ void ExpectException<TException>(int source, int target, string parameter) where
         return;
     }
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for {source} -> {target}.");
+}
+
+void ExpectFilter(TargetFilterMode mode, double chance, bool expected)
+{
+    bool actual = TargetProbabilityFilter.Matches(mode, chance);
+    if (actual != expected)
+        throw new InvalidOperationException($"Filter {mode} for chance {chance:R}: expected {expected}, got {actual}.");
 }
 
 void ExpectRollException(double chance)
