@@ -284,7 +284,7 @@ internal sealed class UpgradeMenu : IClickableMenu
 
         if (playSound)
             Game1.playSound("smallSelect");
-        Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem, filter), option =>
+        Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem, sourceQuantity, filter), option =>
         {
             if (option is not null)
             {

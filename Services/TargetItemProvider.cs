@@ -24,13 +24,22 @@ public sealed class TargetItemProvider
     }
 
     /// <summary>Get preview-only targets with a positive value, optionally narrowed by upgrade probability.</summary>
-    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem, TargetFilterMode filterMode = TargetFilterMode.All)
+    /// <param name="sourceItem">The selected source item whose unit value seeds the 1 → 1 preview math.</param>
+    /// <param name="sourceQuantity">The selected source quantity; probability filters compare the target
+    /// against the total source value (unit value × quantity), not against one unit.</param>
+    /// <param name="filterMode">Optional probability filter. The unfiltered All mode is unchanged.</param>
+    public IReadOnlyList<TargetItemOption> GetTargets(Item sourceItem, int sourceQuantity, TargetFilterMode filterMode = TargetFilterMode.All)
     {
         ArgumentNullException.ThrowIfNull(sourceItem);
 
         int? sourceValue = itemValues.GetValue(sourceItem);
         if (!sourceValue.HasValue || sourceValue.Value <= 0)
             return Array.Empty<TargetItemOption>();
+
+        // The filter must price the whole selected batch: Bait x20 @ 1g filters
+        // against 20g, so its x2 targets sit around 40g. The total is recomputed
+        // on every call, so a quantity change is picked up when the picker reopens.
+        int totalSourceValue = upgradeCalculator.GetTotalSourceValue((sourceValue.Value, Math.Max(1, sourceQuantity)));
 
         IEnumerable<TargetItemOption> options = GetCachedTargets()
             .Where(target => target.Value > 0)
@@ -41,9 +50,10 @@ public sealed class TargetItemProvider
                 (double)target.Value / sourceValue.Value));
 
         // The probability filter only narrows the existing candidate list; validity rules,
-        // sorting and the unfiltered All mode stay exactly as before.
+        // sorting, the 1 → 1 preview math and the unfiltered All mode stay exactly as before.
         if (filterMode != TargetFilterMode.All)
-            options = options.Where(option => TargetProbabilityFilter.Matches(filterMode, option.BaseChance));
+            options = options.Where(option => TargetProbabilityFilter.Matches(filterMode,
+                upgradeCalculator.CalculateChance(totalSourceValue, option.Value)));
 
         return options.ToArray();
     }

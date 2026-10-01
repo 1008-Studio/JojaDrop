@@ -55,6 +55,22 @@ public sealed class UpgradeCalculator
         return CalculateChance(1, 1, sourceValue, targetValue);
     }
 
+    /// <summary>
+    /// Gets the total cost of every selected source: Σ(unit value × quantity).
+    /// Non-positive entries contribute nothing, and the result saturates at int.MaxValue
+    /// since the chance is 100% well before any larger total would matter.
+    /// </summary>
+    public int GetTotalSourceValue(params (int UnitValue, int Quantity)[] selectedSources)
+    {
+        ArgumentNullException.ThrowIfNull(selectedSources);
+
+        long total = 0;
+        foreach ((int unitValue, int quantity) in selectedSources)
+            total += (long)Math.Max(0, unitValue) * Math.Max(0, quantity);
+
+        return (int)Math.Min(int.MaxValue, total);
+    }
+
     private static void ValidateValues(int sourceValue, int targetValue)
     {
         if (sourceValue <= 0)
