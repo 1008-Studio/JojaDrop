@@ -11,8 +11,11 @@ namespace JojaDrop.UI;
 
 internal sealed class UpgradeMenu : IClickableMenu
 {
-    private const int PanelWidth = 720;
-    private const int PanelHeight = 440;
+    private const int BasePanelWidth = 720;
+    private const int BasePanelHeight = 440;
+    private const float MenuScale = 1.18f;
+    private static readonly int PanelWidth = (int)MathF.Round(BasePanelWidth * MenuScale);
+    private static readonly int PanelHeight = (int)MathF.Round(BasePanelHeight * MenuScale);
     private const int TitleOffset = 36;
     private const int SlotTopOffset = 132;
     private const int LabelGap = 40;
@@ -99,7 +102,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         viewportSize = new Point(Game1.uiViewport.Width, Game1.uiViewport.Height);
         width = Math.Min(PanelWidth, Math.Max(1, viewportSize.X - MenuDrawing.ScreenMargin * 2));
         height = Math.Min(PanelHeight, Math.Max(1, viewportSize.Y - MenuDrawing.ScreenMargin * 2));
-        layoutScale = Math.Min(width / (float)PanelWidth, height / (float)PanelHeight);
+        layoutScale = Math.Min(width / (float)BasePanelWidth, height / (float)BasePanelHeight);
         xPositionOnScreen = (viewportSize.X - width) / 2;
         yPositionOnScreen = (viewportSize.Y - height) / 2;
         int slotTop = yPositionOnScreen + Scale(SlotTopOffset);
@@ -372,10 +375,29 @@ internal sealed class UpgradeMenu : IClickableMenu
         DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
         DrawTargetFilterButtons(b);
 
-        // Chance and multiplier above UPGRADE button
-        int buttonTop = upgradeButton.bounds.Y;
-        MenuDrawing.CenteredText(b, GetChanceText(), xPositionOnScreen + width / 2, buttonTop - Scale(56), Color.SteelBlue, 1.5f * layoutScale);
-        MenuDrawing.CenteredText(b, GetMultiplierText(), xPositionOnScreen + width / 2, buttonTop - Scale(24), Color.SteelBlue, layoutScale);
+        Vector2 wheelPosition = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
+        string chanceText = GetChanceText();
+        string multiplierText = GetMultiplierText();
+        Rectangle wheelBounds = RouletteWheel.GetFrameBounds(wheelPosition, layoutScale);
+        int textGap = Scale(2);
+        int textMargin = Scale(2);
+        int availableTop = wheelBounds.Bottom + textMargin;
+        int availableBottom = upgradeButton.bounds.Top - textMargin;
+        int availableHeight = Math.Max(0, availableBottom - availableTop);
+        float chanceScale = 1.8f * layoutScale;
+        float multiplierScale = chanceScale * 0.45f;
+        float textHeight = Game1.smallFont.MeasureString(chanceText).Y * chanceScale
+            + Game1.smallFont.MeasureString(multiplierText).Y * multiplierScale;
+        float fitScale = textHeight <= 0 ? 1f : Math.Min(1f, Math.Max(0f, (availableHeight - textGap) / textHeight));
+        chanceScale *= fitScale;
+        multiplierScale *= fitScale;
+        int chanceHeight = (int)Math.Ceiling(Game1.smallFont.MeasureString(chanceText).Y * chanceScale);
+        int multiplierHeight = (int)Math.Ceiling(Game1.smallFont.MeasureString(multiplierText).Y * multiplierScale);
+        int blockHeight = chanceHeight + textGap + multiplierHeight;
+        int textTop = availableTop + Math.Max(0, (availableHeight - blockHeight) / 2);
+        MenuDrawing.CenteredText(b, chanceText, xPositionOnScreen + width / 2, textTop, Color.SteelBlue, chanceScale);
+        MenuDrawing.CenteredText(b, multiplierText, xPositionOnScreen + width / 2, textTop + chanceHeight + textGap,
+            Color.SteelBlue, multiplierScale);
 
         MenuDrawing.TextButton(b, upgradeButton, "UPGRADE", upgradeButton.containsPoint(Game1.getMouseX(true), Game1.getMouseY(true)),
             enabled: CanUpgrade && !isAnimatingRoulette, textScale: layoutScale);
@@ -390,7 +412,6 @@ internal sealed class UpgradeMenu : IClickableMenu
         double wheelChance = currentChance;
         if (HasUpgradeSelection && (isAnimatingRoulette || TryGetUpgradePreview(out wheelChance, out _)))
         {
-            Vector2 wheelPosition = new(xPositionOnScreen + width / 2f, yPositionOnScreen + height / 2f - Scale(40));
             RouletteWheel.Draw(b, wheelFrame, wheelCenter, wheelArrow, wheelPosition, wheelChance, rouletteAnimationTimer,
                 isAnimatingRoulette, rouletteTargetAngle, layoutScale);
         }
