@@ -34,10 +34,12 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int OutputDecreaseId = 106;
     private const int OutputIncreaseId = 107;
     private const int FilterIdOffset = 108;
-    private const int FilterButtonSize = 30;
+    private const int FilterButtonSize = 36;
     private const int FilterButtonGap = 4;
-    private const int FilterButtonSlotGap = 8;
+    private const int FilterButtonSlotGap = 24;
+    private const int FilterButtonBottomGap = 4;
     private const int FilterButtonTextPadding = 4;
+    private const int FilterButtonTextReferenceWidth = 30;
     private static readonly TargetFilterMode[] FilterModes =
     {
         TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10
@@ -146,29 +148,31 @@ internal sealed class UpgradeMenu : IClickableMenu
         sourceDecreaseButton.downNeighborID = sourceIncreaseButton.downNeighborID = UpgradeId;
         outputDecreaseButton.downNeighborID = outputIncreaseButton.downNeighborID = UpgradeId;
 
-        // Compact probability filter buttons in a row to the right of the Target Item slot.
+        // Compact probability filter buttons stacked vertically to the right of the Target Item
+        // slot. The stack ends just under the slot, above the item name/value lines, so it never
+        // covers them (their width can reach far right of the slot).
         int filterSize = Scale(FilterButtonSize);
         int filterStep = Scale(FilterButtonSize + FilterButtonGap);
-        int filterTop = slotTop + slotSize / 2 - filterSize / 2;
+        int filterHeight = filterButtons.Length * filterStep - Scale(FilterButtonGap);
         int filterLeft = targetSlot.bounds.Right + Scale(FilterButtonSlotGap);
+        int filterTop = slotTop + slotSize + Scale(FilterButtonBottomGap) - filterHeight;
         for (int i = 0; i < filterButtons.Length; i++)
         {
             int id = FilterIdOffset + i;
             filterButtons[i] = new ClickableComponent(
-                new Rectangle(filterLeft + i * filterStep, filterTop, filterSize, filterSize), FilterLabels[i])
+                new Rectangle(filterLeft, filterTop + i * filterStep, filterSize, filterSize), FilterLabels[i])
             {
                 myID = id,
-                leftNeighborID = i == 0 ? TargetId : id - 1,
-                rightNeighborID = i == filterButtons.Length - 1 ? CloseId : id + 1,
-                upNeighborID = CloseId,
-                downNeighborID = UpgradeId
+                leftNeighborID = TargetId,
+                upNeighborID = i == 0 ? CloseId : id - 1,
+                downNeighborID = i == filterButtons.Length - 1 ? UpgradeId : id + 1
             };
         }
 
         initializeUpperRightCloseButton();
         upperRightCloseButton.myID = CloseId;
-        upperRightCloseButton.leftNeighborID = FilterIdOffset + filterButtons.Length - 1;
-        upperRightCloseButton.downNeighborID = TargetId;
+        upperRightCloseButton.leftNeighborID = TargetId;
+        upperRightCloseButton.downNeighborID = FilterIdOffset;
         allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, sourceDecreaseButton, sourceIncreaseButton,
             outputDecreaseButton, outputIncreaseButton, upgradeButton, upperRightCloseButton };
         allClickableComponents.AddRange(filterButtons);
@@ -644,16 +648,18 @@ internal sealed class UpgradeMenu : IClickableMenu
         {
             ClickableComponent button = filterButtons[i];
             MenuDrawing.TextButton(b, button, FilterLabels[i], button.containsPoint(mouseX, mouseY), enabled,
-                GetFilterTextScale(FilterLabels[i], button.bounds.Width));
+                GetFilterTextScale(FilterLabels[i]));
         }
     }
 
-    private float GetFilterTextScale(string label, int buttonWidth)
+    private float GetFilterTextScale(string label)
     {
+        // Labels keep the size they had at the original button width, so growing the
+        // button never grows its text.
         float naturalWidth = Game1.smallFont.MeasureString(label).X;
         return naturalWidth <= 0
             ? layoutScale
-            : Math.Min(layoutScale, (buttonWidth - Scale(FilterButtonTextPadding)) / naturalWidth);
+            : Math.Min(layoutScale, (Scale(FilterButtonTextReferenceWidth) - Scale(FilterButtonTextPadding)) / naturalWidth);
     }
 
     private void ChangeSourceQuantity(int delta)
