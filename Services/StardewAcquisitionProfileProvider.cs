@@ -11,6 +11,7 @@ namespace JojaDrop.Services;
 public sealed class StardewAcquisitionProfileProvider
 {
     private readonly AcquisitionProfileCache cache;
+    private readonly ProductionRecipeExtractor recipes = new();
 
     public StardewAcquisitionProfileProvider(IReadOnlyDictionary<string, ItemValuationOverride>? overrides = null,
         Action<string>? diagnostic = null) => cache = new AcquisitionProfileCache(ReadData, overrides, diagnostic);
@@ -30,6 +31,9 @@ public sealed class StardewAcquisitionProfileProvider
     }
 
     public void Invalidate() => cache.Invalidate();
+
+    /// <summary>Gets deterministic crafting, cooking, and machine relationships from resolved game data.</summary>
+    public IReadOnlyList<ProductionRecipe> BuildProductionRecipes() => recipes.Extract(cache.GetData());
 
     private static AcquisitionIndexData ReadData()
     {

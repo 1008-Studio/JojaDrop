@@ -8,6 +8,7 @@ var inventoryPlanner = new InventoryBatchPlanner();
 var acquisitionIndexer = new AcquisitionProfileIndexer();
 var pointsEngine = new PointsValuationEngine();
 var finalPointsCalculator = new FinalPointsCalculator();
+var productionRecipeExtractor = new ProductionRecipeExtractor();
 
 // Final-price inputs are a separate, immutable production graph. This is intentionally
 // not wired into acquisition valuation or gameplay until the calculator stage.
@@ -32,6 +33,18 @@ ExpectModelException(() => new ProductionRecipe(" ", [new ProductionIngredient("
     new ProductionOutput("(O)Bar", 1)));
 ExpectModelException(() => new ProductionRecipe("Data/CraftingRecipes:Bar", Array.Empty<ProductionIngredient>(),
     new ProductionOutput("(O)Bar", 1)));
+
+AcquisitionIndexData productionData = AcquisitionIndexData.Empty with
+{
+    Recipes = [new RecipeProduction(AcquisitionKind.Crafting, "Mod.Bar", [new ProductionInput("(O)Mod.Ore", 5)], "(O)Mod.Bar", 2, null),
+        new RecipeProduction(AcquisitionKind.Cooking, "Soup", [new ProductionInput("-79", 1, true)], "(O)Soup", 1, null)],
+    MachineProductions = [new MachineProduction("(BC)Furnace", [new ProductionInput("(O)Mod.Bar", 1)], "(O)Mod.Alloy", 1, 1, 60, 0, null),
+        new MachineProduction("(BC)Random", [new ProductionInput("(O)Mod.Bar", 1)], "(O)Ignored", 1, 1, 0, 0, null, true)]
+};
+ProductionRecipe[] extractedRecipes = productionRecipeExtractor.Extract(productionData).ToArray();
+if (extractedRecipes.Length != 2 || extractedRecipes.Single(recipe => recipe.Output.ItemId == "(O)Mod.Bar").Output.Quantity != 2
+    || extractedRecipes.Single(recipe => recipe.Output.ItemId == "(O)Mod.Alloy").SourceId != "Data/Machines:(BC)Furnace")
+    throw new InvalidOperationException("Only deterministic, concrete crafting and machine recipes may enter final valuation.");
 
 // Final points P(x) are a pure recursive layer over intrinsic points U(x).
 FinalPriceResult rawFinalPoints = finalPointsCalculator.Calculate("(O)A", new Dictionary<string, int>

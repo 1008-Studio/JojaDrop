@@ -93,6 +93,8 @@ public sealed class AcquisitionProfileCache
         reportedDiagnostics.Clear();
     }
 
+    public AcquisitionIndexData GetData() => data ??= readData();
+
     private void Report(
         string qualifiedItemId,
         string message)
