@@ -99,7 +99,7 @@ public sealed record AcquisitionRoute
         AcquisitionEvidence[] evidenceItems = evidence.ToArray();
         if (evidenceItems.Length == 0 || evidenceItems.Any(item => item is null))
             throw new ArgumentException("A route needs at least one evidence item.", nameof(evidence));
-        if ((kind == AcquisitionKind.Unknown) != (confidence == AcquisitionConfidence.Unknown))
+        if (kind != AcquisitionKind.Unknown && confidence == AcquisitionConfidence.Unknown)
             throw new ArgumentException("Only an unknown route may have unknown confidence.", nameof(confidence));
 
         Kind = kind;

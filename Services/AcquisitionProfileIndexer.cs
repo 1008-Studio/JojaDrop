@@ -16,11 +16,14 @@ public sealed class AcquisitionProfileIndexer
         AddFarmingRoutes(routes, qualifiedItemId, data);
         AddShopRoutes(routes, qualifiedItemId, data.ShopOffers);
         AddForageRoutes(routes, qualifiedItemId, data);
+        AddGeodeRoutes(routes, qualifiedItemId, data.GeodeDrops);
+        AddMachineRoutes(routes, qualifiedItemId, data.MachineProductions);
+        AddRecipeRoutes(routes, qualifiedItemId, data.Recipes);
 
         if (routes.Count == 0)
         {
             routes.Add(new AcquisitionRoute(AcquisitionKind.Unknown,
-                new AcquisitionMetrics(null, null, null, null, null, null, null), AcquisitionConfidence.Unknown,
+                new AcquisitionMetrics(null, null, null, null, null, null, null), AcquisitionConfidence.Low,
                 new[] { new AcquisitionEvidence("Acquisition index", "No matching data-defined route") }));
         }
 
@@ -114,6 +117,44 @@ public sealed class AcquisitionProfileIndexer
         }
     }
 
+    private static void AddGeodeRoutes(List<AcquisitionRoute> routes, string itemId, IEnumerable<GeodeDrop> drops)
+    {
+        foreach (GeodeDrop drop in drops.Where(entry => entry.ItemId == itemId))
+        {
+            routes.Add(new AcquisitionRoute(AcquisitionKind.Geode,
+                new AcquisitionMetrics(null, InversePercent(drop.Chance), null, null,
+                    RestrictionCount(drop.Condition, null, null, false, false), null, 0), AcquisitionConfidence.High,
+                new[] { new AcquisitionEvidence("Data/Objects", $"geode={drop.GeodeItemId}; chance={Format(drop.Chance)}; output={drop.MinStack}-{drop.MaxStack}", drop.Condition) }));
+        }
+    }
+
+    private static void AddMachineRoutes(List<AcquisitionRoute> routes, string itemId, IEnumerable<MachineProduction> productions)
+    {
+        foreach (MachineProduction production in productions.Where(entry => entry.ItemId == itemId))
+        {
+            routes.Add(new AcquisitionRoute(AcquisitionKind.Machine,
+                new AcquisitionMetrics(null, null, null, ProductionTime(production.MinutesUntilReady, production.DaysUntilReady),
+                    RestrictionCount(production.Condition, null, null, production.Inputs.Count > 1, false), null, null),
+                AcquisitionConfidence.High,
+                new[] { new AcquisitionEvidence("Data/Machines",
+                    $"machine={production.MachineItemId}; input={FormatInputs(production.Inputs)}; output={production.MinOutput}-{production.MaxOutput}; "
+                    + $"minutes={production.MinutesUntilReady}; days={production.DaysUntilReady}", production.Condition) }));
+        }
+    }
+
+    private static void AddRecipeRoutes(List<AcquisitionRoute> routes, string itemId, IEnumerable<RecipeProduction> recipes)
+    {
+        foreach (RecipeProduction recipe in recipes.Where(entry => entry.ItemId == itemId))
+        {
+            routes.Add(new AcquisitionRoute(recipe.Kind,
+                new AcquisitionMetrics(null, null, null, Math.Min(AcquisitionMetrics.Maximum, recipe.Inputs.Count * 10),
+                    RestrictionCount(recipe.UnlockCondition, null, null, recipe.Inputs.Count > 1, false), null, null),
+                AcquisitionConfidence.High,
+                new[] { new AcquisitionEvidence(recipe.Kind == AcquisitionKind.Crafting ? "Data/CraftingRecipes" : "Data/CookingRecipes",
+                    $"recipe={recipe.RecipeId}; input={FormatInputs(recipe.Inputs)}; output={recipe.OutputQuantity}", recipe.UnlockCondition) }));
+        }
+    }
+
     private static AcquisitionEvidence ShopEvidence(string source, ShopOffer offer, string role)
     {
         string currency = offer.IsGoldCurrency && string.IsNullOrWhiteSpace(offer.TradeItemId)
@@ -129,6 +170,9 @@ public sealed class AcquisitionProfileIndexer
     private static int? Level(int? value) => value is >= 0 ? Math.Min(AcquisitionMetrics.Maximum, value.Value * 10) : null;
     private static int? Distance(int? value) => value is >= 0 ? Math.Min(AcquisitionMetrics.Maximum, value.Value * 10) : null;
     private static int? Days(int value) => value >= 0 ? Math.Min(AcquisitionMetrics.Maximum, value * 5) : null;
+    private static int? ProductionTime(int minutes, int days) => minutes < 0 || days < 0
+        ? null
+        : Math.Min(AcquisitionMetrics.Maximum, minutes / 10 + days * AcquisitionMetrics.Maximum);
     private static int? Max(int? first, int? second) => first is null ? second : second is null ? first : Math.Max(first.Value, second.Value);
     private static int RestrictionCount(string? condition, string? season, string? weather, bool extra, bool specialCurrency)
     {
@@ -138,4 +182,6 @@ public sealed class AcquisitionProfileIndexer
     }
 
     private static string Format<T>(T? value) => value?.ToString() ?? "unknown";
+    private static string FormatInputs(IEnumerable<ProductionInput> inputs) => string.Join(", ", inputs.Select(input =>
+        $"{(input.IsCategory ? "category=" : string.Empty)}{input.ItemId} x{input.Quantity}"));
 }

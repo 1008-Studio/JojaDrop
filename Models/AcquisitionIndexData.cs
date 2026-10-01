@@ -9,6 +9,10 @@ public sealed record AcquisitionIndexData(
     IReadOnlyList<ForageSpawn> Forage,
     IReadOnlyList<ItemMetadata> Items)
 {
+    public IReadOnlyList<GeodeDrop> GeodeDrops { get; init; } = Array.Empty<GeodeDrop>();
+    public IReadOnlyList<MachineProduction> MachineProductions { get; init; } = Array.Empty<MachineProduction>();
+    public IReadOnlyList<RecipeProduction> Recipes { get; init; } = Array.Empty<RecipeProduction>();
+
     public static AcquisitionIndexData Empty { get; } = new(
         Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(),
         Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>());
@@ -33,3 +37,14 @@ public sealed record ForageSpawn(string ItemId, string LocationId, double? Chanc
     string? Condition);
 
 public sealed record ItemMetadata(string QualifiedItemId, int Category, IReadOnlyList<string> ContextTags);
+
+public sealed record GeodeDrop(string GeodeItemId, string ItemId, double? Chance, int MinStack, int MaxStack,
+    string? Condition);
+
+public sealed record ProductionInput(string ItemId, int Quantity, bool IsCategory = false);
+
+public sealed record MachineProduction(string MachineItemId, IReadOnlyList<ProductionInput> Inputs, string ItemId,
+    int MinOutput, int MaxOutput, int MinutesUntilReady, int DaysUntilReady, string? Condition);
+
+public sealed record RecipeProduction(AcquisitionKind Kind, string RecipeId, IReadOnlyList<ProductionInput> Inputs,
+    string ItemId, int OutputQuantity, string? UnlockCondition);

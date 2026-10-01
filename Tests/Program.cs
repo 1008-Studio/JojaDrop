@@ -51,8 +51,6 @@ if (new ValuationBreakdown(coalProfile, 0).Profile != coalProfile)
 
 ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Fishing, metrics, AcquisitionConfidence.Unknown,
     [new AcquisitionEvidence("Data/Fish", "(O)128")]));
-ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Unknown, metrics, AcquisitionConfidence.Low,
-    [new AcquisitionEvidence("Indexer", "Missing")]));
 ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Shop, metrics, AcquisitionConfidence.High,
     Array.Empty<AcquisitionEvidence>()));
 ExpectModelException(() => new AcquisitionProfile(" ", [fishRoute]));
@@ -130,8 +128,51 @@ if (tagOnlyForage.Routes.Single().Confidence != AcquisitionConfidence.Low)
     throw new InvalidOperationException("Metadata-only forage must remain a partial low-confidence route.");
 
 AcquisitionProfile missing = acquisitionIndexer.Build("(O)Mod.Missing", AcquisitionIndexData.Empty);
-if (missing.Routes.Single().Kind != AcquisitionKind.Unknown || missing.Routes.Single().Confidence != AcquisitionConfidence.Unknown)
-    throw new InvalidOperationException("Missing and modded string IDs must remain explicit unknown routes.");
+if (missing.Routes.Single().Kind != AcquisitionKind.Unknown || missing.Routes.Single().Confidence != AcquisitionConfidence.Low)
+    throw new InvalidOperationException("Missing and modded string IDs must remain explicit low-confidence unknown routes.");
+
+var extendedData = AcquisitionIndexData.Empty with
+{
+    GeodeDrops = [new GeodeDrop("(O)535", "(O)72", 0.01, 1, 1, "PLAYER_HAS_MAIL Current mineAccess")],
+    MachineProductions = [new MachineProduction("(BC)12", [new ProductionInput("(O)378", 5)], "(O)334", 1, 1, 120, 0,
+        "PLAYER_HAS_CRAFTING_RECIPE Current Furnace")],
+    Recipes =
+    [
+        new RecipeProduction(AcquisitionKind.Crafting, "CopperBar", [new ProductionInput("(O)378", 5)], "(O)334", 1, "s Mining 3"),
+        new RecipeProduction(AcquisitionKind.Cooking, "FruitSalad", [new ProductionInput("-79", 1, true), new ProductionInput("(O)613", 1)], "(O)610", 1, "f Caroline 3")
+    ]
+};
+AcquisitionProfile geodeResult = acquisitionIndexer.Build("(O)72", extendedData);
+if (geodeResult.Routes.Single().Kind != AcquisitionKind.Geode || geodeResult.Routes.Single().Metrics.Scarcity != 99
+    || geodeResult.Routes.Single().Evidence.Single().Condition is null)
+{
+    throw new InvalidOperationException("Geode routes must preserve their source, chance, output count, and conditions.");
+}
+
+AcquisitionProfile machineResult = acquisitionIndexer.Build("(O)334", extendedData);
+AcquisitionRoute machineRoute = machineResult.Routes.Single(route => route.Kind == AcquisitionKind.Machine);
+if (machineRoute.Metrics.Effort != 12 || !machineRoute.Evidence.Single().Detail.Contains("(O)378 x5", StringComparison.Ordinal)
+    || machineRoute.Evidence.Single().Condition is null)
+{
+    throw new InvalidOperationException("Machine routes must retain input quantity, output quantity, processing time, and conditions.");
+}
+
+AcquisitionProfile craftingResult = acquisitionIndexer.Build("(O)334", extendedData);
+if (craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Evidence.Single().Detail.Contains("(O)378 x5") != true)
+    throw new InvalidOperationException("Crafting routes must retain recipe dependencies without recursively valuing them.");
+
+AcquisitionProfile cookingResult = acquisitionIndexer.Build("(O)610", extendedData);
+if (cookingResult.Routes.Single().Kind != AcquisitionKind.Cooking
+    || !cookingResult.Routes.Single().Evidence.Single().Detail.Contains("category=-79 x1", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Cooking routes must retain category and item recipe dependencies.");
+}
+
+AcquisitionProfile mineralOnly = acquisitionIndexer.Build("(O)Mod.Mineral", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    Array.Empty<ForageSpawn>(), [new ItemMetadata("(O)Mod.Mineral", -2, ["mineral_item"])]));
+if (mineralOnly.Routes.Single().Kind != AcquisitionKind.Unknown)
+    throw new InvalidOperationException("A mineral tag alone must not invent a mining route or difficulty.");
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
