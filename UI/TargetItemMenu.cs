@@ -1,4 +1,5 @@
 using JojaDrop.Models;
+using JojaDrop.Services;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -30,6 +31,7 @@ internal sealed class TargetItemMenu : IClickableMenu
     private const int CloseId = 902;
 
     private readonly IReadOnlyList<TargetItemOption> targetOptions;
+    private readonly TargetFilterMode filter;
     private readonly List<ClickableComponent> slots = new();
     private ClickableComponent previousButton = null!;
     private ClickableComponent nextButton = null!;
@@ -42,10 +44,12 @@ internal sealed class TargetItemMenu : IClickableMenu
 
     private int PageCount => Math.Max(1, (targetOptions.Count + pageSize - 1) / pageSize);
 
-    public TargetItemMenu(IReadOnlyList<TargetItemOption> targetOptions, Action<TargetItemOption?> onClosed)
+    public TargetItemMenu(IReadOnlyList<TargetItemOption> targetOptions, Action<TargetItemOption?> onClosed,
+        TargetFilterMode filter = TargetFilterMode.All)
     {
         this.targetOptions = targetOptions ?? throw new ArgumentNullException(nameof(targetOptions));
         ArgumentNullException.ThrowIfNull(onClosed);
+        this.filter = filter;
         exitFunction = () => onClosed(selectedOption);
         UpdateLayout();
     }
@@ -204,8 +208,18 @@ internal sealed class TargetItemMenu : IClickableMenu
         MenuDrawing.Panel(b, this);
         int centerX = xPositionOnScreen + width / 2;
         MenuDrawing.CenteredText(b, "Choose Target", centerX, yPositionOnScreen + TitleOffset, scale: 1.25f);
-        MenuDrawing.CenteredText(b, MenuDrawing.FitText("Choose an item to upgrade toward.", width - ContentPadding * 2),
+        string instruction = filter == TargetFilterMode.All
+            ? "Choose an item to upgrade toward."
+            : $"Showing targets with ~{TargetProbabilityFilter.GetChanceText(filter)} upgrade chance.";
+        MenuDrawing.CenteredText(b, MenuDrawing.FitText(instruction, width - ContentPadding * 2),
             centerX, yPositionOnScreen + InstructionOffset);
+        if (targetOptions.Count == 0)
+        {
+            MenuDrawing.CenteredText(b, filter == TargetFilterMode.All
+                    ? "No target items available."
+                    : "No targets match this filter.",
+                centerX, yPositionOnScreen + (GridTopOffset + height - FooterHeight) / 2);
+        }
         int mouseX = Game1.getMouseX(true);
         int mouseY = Game1.getMouseY(true);
         for (int i = 0; i < slots.Count; i++)

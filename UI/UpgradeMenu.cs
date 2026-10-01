@@ -250,41 +250,50 @@ internal sealed class UpgradeMenu : IClickableMenu
         }
         if (targetSlot.containsPoint(x, y) && sourceItem is not null)
         {
-            if (playSound)
-                Game1.playSound("smallSelect");
-            Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem), option =>
-            {
-                if (option is not null)
-                {
-                    targetOption = option;
-                    if (!TryGetMinimumOutputQuantity(out int minimumOutput))
-                    {
-                        targetOption = null;
-                        statusMessage = "Upgrade unavailable: target item has no valid value.";
-                        Game1.activeClickableMenu = this;
-                        UpdateLayout();
-                        return;
-                    }
-
-                    outputQuantity = minimumOutput;
-                    RefreshQuantityState();
-                    hasRolledCurrentSelection = false;
-                    isAnimatingRoulette = false;
-                    rouletteAnimationTimer = 0f;
-                    pendingSource = null;
-                    pendingTarget = null;
-                    pendingSourceQuantity = 0;
-                    pendingOutputQuantity = 0;
-                    rouletteResult = false;
-                    statusMessage = "";
-                }
-                Game1.activeClickableMenu = this;
-                UpdateLayout();
-            });
+            OpenTargetPicker(TargetFilterMode.All, playSound);
             return;
         }
         if (upgradeButton.containsPoint(x, y) && CanUpgrade)
             ProcessUpgrade();
+    }
+
+    /// <summary>Open the target picker, optionally narrowed to a target probability filter.</summary>
+    private void OpenTargetPicker(TargetFilterMode filter, bool playSound)
+    {
+        if (sourceItem is null)
+            return;
+
+        if (playSound)
+            Game1.playSound("smallSelect");
+        Game1.activeClickableMenu = new TargetItemMenu(targetItemProvider.GetTargets(sourceItem, filter), option =>
+        {
+            if (option is not null)
+            {
+                targetOption = option;
+                if (!TryGetMinimumOutputQuantity(out int minimumOutput))
+                {
+                    targetOption = null;
+                    statusMessage = "Upgrade unavailable: target item has no valid value.";
+                    Game1.activeClickableMenu = this;
+                    UpdateLayout();
+                    return;
+                }
+
+                outputQuantity = minimumOutput;
+                RefreshQuantityState();
+                hasRolledCurrentSelection = false;
+                isAnimatingRoulette = false;
+                rouletteAnimationTimer = 0f;
+                pendingSource = null;
+                pendingTarget = null;
+                pendingSourceQuantity = 0;
+                pendingOutputQuantity = 0;
+                rouletteResult = false;
+                statusMessage = "";
+            }
+            Game1.activeClickableMenu = this;
+            UpdateLayout();
+        }, filter);
     }
 
     public override void receiveKeyPress(Keys key)
