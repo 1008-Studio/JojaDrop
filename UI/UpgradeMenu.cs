@@ -778,7 +778,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         if (item is not null)
         {
             string valueText = value.HasValue
-                ? quantity == 1 ? $"{value.Value:N0}g / item" : $"{quantity} × {value.Value:N0}g = {(long)quantity * value.Value:N0}g"
+                ? quantity == 1 ? $"{value.Value:N0} pts / item" : $"{quantity} × {value.Value:N0} pts = {(long)quantity * value.Value:N0} pts"
                 : "Value unavailable";
             MenuDrawing.CenteredText(b, valueText,
                 slot.bounds.Center.X, slot.bounds.Bottom + Scale(ItemValueGap), scale: layoutScale);

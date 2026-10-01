@@ -1,7 +1,7 @@
 {
   "Name": "JojaDrop",
   "Author": "1008 Studio",
-  "Version": "0.3.3",
+  "Version": "0.4",
   "Description": "A Stardew-style item upgrader with probability-based success and failure.",
   "UniqueID": "1008Studio.JojaDrop",
   "EntryDll": "JojaDrop.dll",

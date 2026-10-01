@@ -46,7 +46,8 @@ internal sealed class InventoryIntegration
         helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
-
+  
+    public void InvalidateValueCache() => targetItemProvider.InvalidateCache();
     /// <summary>The active menu when it's the player's inventory, even if another menu or overlay
     /// was opened over it. The game draws the inventory page first and any child menu on top of it,
     /// so the inventory stays on screen and the button must stay visible with it.</summary>

@@ -199,7 +199,7 @@ internal sealed class SourceItemMenu : IClickableMenu
             if (item is not null)
             {
                 int? value = itemValues.GetValue(item);
-                hoverText = value.HasValue ? $"{item.DisplayName}\n{value.Value:N0}g / item\nSelect without moving this item."
+                hoverText = value.HasValue ? $"{item.DisplayName}\n{value.Value:N0} pts / item\nSelect without moving this item."
                     : $"{item.DisplayName}\nThis item has no supported upgrade value yet.";
             }
             break;

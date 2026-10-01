@@ -5,6 +5,593 @@ using StardewValley;
 var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
+var acquisitionIndexer = new AcquisitionProfileIndexer();
+var pointsEngine = new PointsValuationEngine();
+var finalPointsCalculator = new FinalPointsCalculator();
+var productionRecipeExtractor = new ProductionRecipeExtractor();
+var finalPointsCache = new FinalPointsCache();
+
+// Final-price inputs are a separate, immutable production graph. This is intentionally
+// not wired into acquisition valuation or gameplay until the calculator stage.
+ProductionIngredient[] recipeIngredients = [new("(O)Mod.Author_Ore", 5)];
+var productionRecipe = new ProductionRecipe("Data/CraftingRecipes:Mod.Author_Bar", recipeIngredients,
+    new ProductionOutput("(O)Mod.Author_Bar", 2));
+recipeIngredients[0] = new ProductionIngredient("(O)Changed", 1);
+if (productionRecipe.SourceId != "Data/CraftingRecipes:Mod.Author_Bar"
+    || productionRecipe.Ingredients.Count != 1
+    || productionRecipe.Ingredients[0].ItemId != "(O)Mod.Author_Ore"
+    || productionRecipe.Ingredients[0].Quantity != 5
+    || productionRecipe.Output.ItemId != "(O)Mod.Author_Bar"
+    || productionRecipe.Output.Quantity != 2)
+{
+    throw new InvalidOperationException("Production recipes must preserve source, modded IDs, quantities, and copied ingredients.");
+}
+
+ExpectModelException(() => new ProductionIngredient(" ", 1));
+ExpectModelException(() => new ProductionIngredient("(O)Ore", 0));
+ExpectModelException(() => new ProductionOutput("(O)Bar", 0));
+ExpectModelException(() => new ProductionRecipe(" ", [new ProductionIngredient("(O)Ore", 1)],
+    new ProductionOutput("(O)Bar", 1)));
+ExpectModelException(() => new ProductionRecipe("Data/CraftingRecipes:Bar", Array.Empty<ProductionIngredient>(),
+    new ProductionOutput("(O)Bar", 1)));
+
+AcquisitionIndexData productionData = AcquisitionIndexData.Empty with
+{
+    Recipes = [new RecipeProduction(AcquisitionKind.Crafting, "Mod.Bar", [new ProductionInput("(O)Mod.Ore", 5)], "(O)Mod.Bar", 2, null),
+        new RecipeProduction(AcquisitionKind.Cooking, "Soup", [new ProductionInput("-79", 1, true)], "(O)Soup", 1, null)],
+    MachineProductions = [new MachineProduction("(BC)Furnace", [new ProductionInput("(O)Mod.Bar", 1)], "(O)Mod.Alloy", 1, 1, 60, 0, null),
+        new MachineProduction("(BC)Random", [new ProductionInput("(O)Mod.Bar", 1)], "(O)Ignored", 1, 1, 0, 0, null, true)]
+};
+ProductionRecipe[] extractedRecipes = productionRecipeExtractor.Extract(productionData).ToArray();
+if (extractedRecipes.Length != 2 || extractedRecipes.Single(recipe => recipe.Output.ItemId == "(O)Mod.Bar").Output.Quantity != 2
+    || extractedRecipes.Single(recipe => recipe.Output.ItemId == "(O)Mod.Alloy").SourceId != "Data/Machines:(BC)Furnace")
+    throw new InvalidOperationException("Only deterministic, concrete crafting and machine recipes may enter final valuation.");
+
+// Final points P(x) are a pure recursive layer over intrinsic points U(x).
+FinalPriceResult rawFinalPoints = finalPointsCalculator.Calculate("(O)A", new Dictionary<string, int>
+{
+    ["(O)A"] = 1000
+}, Array.Empty<ProductionRecipe>());
+if (rawFinalPoints.UniquePoints != 1000 || rawFinalPoints.Points != 1000 || rawFinalPoints.BestRecipe is not null)
+    throw new InvalidOperationException("An item without a recipe must retain its intrinsic points.");
+
+var tenAtoB = new ProductionRecipe("Data/CraftingRecipes:B", [new ProductionIngredient("(O)A", 10)],
+    new ProductionOutput("(O)B", 1));
+FinalPriceResult craftedB = finalPointsCalculator.Calculate("(O)B", new Dictionary<string, int>
+{
+    ["(O)A"] = 100,
+    ["(O)B"] = 200
+}, [tenAtoB]);
+if (craftedB.RecipeInputCost != 1000d || craftedB.CraftFloor != 900d || craftedB.Points != 900
+    || craftedB.BestRecipe != tenAtoB)
+{
+    throw new InvalidOperationException("Craft floors must retain 90% of recursive input points.");
+}
+
+if (finalPointsCalculator.Calculate("(O)B", new Dictionary<string, int> { ["(O)A"] = 100, ["(O)B"] = 2000 },
+        [tenAtoB]).Points != 2000)
+{
+    throw new InvalidOperationException("Intrinsic points must remain a floor above a cheaper craft route.");
+}
+
+var barFromOre = new ProductionRecipe("Data/Machines:Furnace", [new ProductionIngredient("(O)Ore", 10)],
+    new ProductionOutput("(O)Bar", 1));
+var partFromBar = new ProductionRecipe("Data/CraftingRecipes:Part", [new ProductionIngredient("(O)Bar", 1)],
+    new ProductionOutput("(O)Part", 1));
+if (finalPointsCalculator.Calculate("(O)Part", new Dictionary<string, int>
+    {
+        ["(O)Ore"] = 100,
+        ["(O)Bar"] = 10,
+        ["(O)Part"] = 1
+    }, [barFromOre, partFromBar]).Points != 810)
+{
+    throw new InvalidOperationException("A production chain must use P(subitem), not U(subitem).");
+}
+
+var fiveOutput = new ProductionRecipe("Data/CraftingRecipes:Five", [new ProductionIngredient("(O)A", 1)],
+    new ProductionOutput("(O)Five", 5));
+if (finalPointsCalculator.Calculate("(O)Five", new Dictionary<string, int> { ["(O)A"] = 1000, ["(O)Five"] = 1 },
+        [fiveOutput]).Points != 180)
+{
+    throw new InvalidOperationException("Multi-output recipes must divide retained input points across every output.");
+}
+
+var expensiveRecipe = new ProductionRecipe("Data/CraftingRecipes:Expensive", [new ProductionIngredient("(O)Expensive", 1)],
+    new ProductionOutput("(O)Choice", 1));
+var cheapRecipe = new ProductionRecipe("Data/CraftingRecipes:Cheap", [new ProductionIngredient("(O)Cheap", 1)],
+    new ProductionOutput("(O)Choice", 1));
+FinalPriceResult cheapestChoice = finalPointsCalculator.Calculate("(O)Choice", new Dictionary<string, int>
+{
+    ["(O)Expensive"] = 1000,
+    ["(O)Cheap"] = 600,
+    ["(O)Choice"] = 100
+}, [expensiveRecipe, cheapRecipe]);
+if (cheapestChoice.Points != 540 || cheapestChoice.BestRecipe != cheapRecipe)
+    throw new InvalidOperationException("Final points must select the cheapest valid recipe before applying the intrinsic floor.");
+
+var cycleARecipe = new ProductionRecipe("Cycle:A", [new ProductionIngredient("(O)CycleB", 1)],
+    new ProductionOutput("(O)CycleA", 1));
+var cycleBRecipe = new ProductionRecipe("Cycle:B", [new ProductionIngredient("(O)CycleC", 1)],
+    new ProductionOutput("(O)CycleB", 1));
+var cycleCRecipe = new ProductionRecipe("Cycle:C", [new ProductionIngredient("(O)CycleA", 1)],
+    new ProductionOutput("(O)CycleC", 1));
+var cycleDiagnostics = new List<string>();
+if (finalPointsCalculator.Calculate("(O)CycleA", new Dictionary<string, int>
+    {
+        ["(O)CycleA"] = 100,
+        ["(O)CycleB"] = 100,
+        ["(O)CycleC"] = 100
+    }, [cycleARecipe, cycleBRecipe, cycleCRecipe], cycleDiagnostics.Add).Points != 100
+    || !cycleDiagnostics.Any(message => message.Contains("cycle", StringComparison.OrdinalIgnoreCase)))
+{
+    throw new InvalidOperationException("Cyclic production branches must terminate at intrinsic points with a diagnostic.");
+}
+
+var bFromD = new ProductionRecipe("Memo:B", [new ProductionIngredient("(O)D", 1)], new ProductionOutput("(O)B", 1));
+var cFromD = new ProductionRecipe("Memo:C", [new ProductionIngredient("(O)D", 1)], new ProductionOutput("(O)C", 1));
+var aFromBandC = new ProductionRecipe("Memo:A", [new ProductionIngredient("(O)B", 1), new ProductionIngredient("(O)C", 1)],
+    new ProductionOutput("(O)A", 1));
+var lookupCount = new Dictionary<string, int>(StringComparer.Ordinal);
+int? CountedIntrinsicPoints(string id)
+{
+    lookupCount[id] = lookupCount.GetValueOrDefault(id) + 1;
+    return new Dictionary<string, int>
+    {
+        ["(O)A"] = 1,
+        ["(O)B"] = 1,
+        ["(O)C"] = 1,
+        ["(O)D"] = 100
+    }.TryGetValue(id, out int value) ? value : null;
+}
+
+if (finalPointsCalculator.Calculate("(O)A", CountedIntrinsicPoints, [aFromBandC, bFromD, cFromD]).Points != 162
+    || lookupCount.GetValueOrDefault("(O)D") != 3)
+{
+    throw new InvalidOperationException("A shared recursive dependency must be memoized within one calculation.");
+}
+
+var missingRecipeInputDiagnostics = new List<string>();
+if (finalPointsCalculator.Calculate("(O)MissingResult", new Dictionary<string, int> { ["(O)MissingResult"] = 42 },
+        [new ProductionRecipe("Missing", [new ProductionIngredient("(O)MissingInput", 1)],
+            new ProductionOutput("(O)MissingResult", 1))], missingRecipeInputDiagnostics.Add).Points != 42
+    || !missingRecipeInputDiagnostics.Any(message => message.Contains("unavailable", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Unknown recipe inputs must safely preserve intrinsic points.");
+}
+
+if (finalPointsCalculator.Calculate("(O)Large", new Dictionary<string, int>
+    {
+        ["(O)Large"] = 0,
+        ["(O)HugeInput"] = int.MaxValue
+    }, [new ProductionRecipe("Large", [new ProductionIngredient("(O)HugeInput", int.MaxValue)],
+        new ProductionOutput("(O)Large", 1))]).Points != int.MaxValue)
+{
+    throw new InvalidOperationException("Large recipe arithmetic must remain bounded at the JojaDrop points limit.");
+}
+
+var cacheRecipe = new ProductionRecipe("Cache", [new ProductionIngredient("(O)Input", 1)], new ProductionOutput("(O)Output", 1));
+if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 100, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 90
+    || finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 200, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 90)
+    throw new InvalidOperationException("Final points must remain stable for one resolved-data snapshot.");
+finalPointsCache.Invalidate();
+if (finalPointsCache.Get(new Dictionary<string, int> { ["(O)Input"] = 200, ["(O)Output"] = 1 }, [cacheRecipe])["(O)Output"] != 180)
+    throw new InvalidOperationException("Invalidating final points must rebuild dependent valuations.");
+
+// Acquisition profiles stay pure domain data: every route is evidenced and an
+// item may retain independent routes instead of being forced into one source type.
+var metrics = new AcquisitionMetrics(75, 60, 40, 80, 25, 10, 0);
+if (metrics.Difficulty != 75 || metrics.Farmability != 0)
+    throw new InvalidOperationException("Acquisition metrics must retain normalized values.");
+
+foreach (int invalidMetric in new[] { AcquisitionMetrics.Minimum - 1, AcquisitionMetrics.Maximum + 1 })
+    ExpectModelException(() => new AcquisitionMetrics(invalidMetric, 0, 0, 0, 0, 0, 0));
+
+var fishRoute = new AcquisitionRoute(AcquisitionKind.Fishing, metrics, AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Data/Fish", "(O)128"), new AcquisitionEvidence("Data/Locations", "Beach", "RAINY")]);
+if (fishRoute.Kind != AcquisitionKind.Fishing || fishRoute.Evidence.Count != 2
+    || fishRoute.Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("A valid acquisition route must retain its kind, metrics, confidence, and evidence.");
+}
+
+var unknownRoute = new AcquisitionRoute(AcquisitionKind.Unknown,
+    new AcquisitionMetrics(50, 50, 50, 50, 50, 50, 50), AcquisitionConfidence.Unknown,
+    [new AcquisitionEvidence("Indexer", "No reliable acquisition data")]);
+if (unknownRoute.Kind != AcquisitionKind.Unknown || unknownRoute.Confidence != AcquisitionConfidence.Unknown)
+    throw new InvalidOperationException("An unknown route must remain explicit and low-assumption.");
+
+var coalRoutes = new[]
+{
+    new AcquisitionRoute(AcquisitionKind.Mining, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Locations", "Mine ore nodes")]),
+    new AcquisitionRoute(AcquisitionKind.MonsterDrop, metrics, AcquisitionConfidence.Medium,
+        [new AcquisitionEvidence("Drop index", "Dust Spirit")]),
+    new AcquisitionRoute(AcquisitionKind.Machine, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Machines", "Charcoal Kiln")]),
+    new AcquisitionRoute(AcquisitionKind.Shop, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Data/Shops", "Clint")])
+};
+var coalProfile = new AcquisitionProfile("(O)Coal", coalRoutes);
+coalRoutes[0] = unknownRoute;
+if (coalProfile.Routes.Count != 4 || coalProfile.Routes[0].Kind != AcquisitionKind.Mining)
+    throw new InvalidOperationException("A profile must preserve multiple routes independently of its input collection.");
+
+if (new ValuationBreakdown(coalProfile, 0).Profile != coalProfile)
+    throw new InvalidOperationException("A valuation breakdown must retain its profile without valuing it yet.");
+
+ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Fishing, metrics, AcquisitionConfidence.Unknown,
+    [new AcquisitionEvidence("Data/Fish", "(O)128")]));
+ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Shop, metrics, AcquisitionConfidence.High,
+    Array.Empty<AcquisitionEvidence>()));
+ExpectModelException(() => new AcquisitionProfile(" ", [fishRoute]));
+ExpectModelException(() => new AcquisitionProfile("(O)128", Array.Empty<AcquisitionRoute>()));
+ExpectModelException(() => new ValuationBreakdown(coalProfile, -1));
+ExpectModelException(() => new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, double.NaN));
+
+// Core acquisition routes are indexed from fixture data without Stardew runtime or numeric item-ID assumptions.
+AcquisitionProfile salmon = acquisitionIndexer.Build("(O)139", new AcquisitionIndexData(
+    [new FishingDefinition("(O)139", 70, "mixed", 0.3, "rainy", ["600", "1900"], 3)],
+    [new FishingSpawn("(O)139", "Town", 0.35, "Fall", "PLAYER_HAS_SEEN_EVENT Current 3910979", 2, 3, false, null, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute salmonRoute = salmon.Routes.Single();
+if (salmonRoute.Kind != AcquisitionKind.Fishing || salmonRoute.Metrics.Difficulty != 70
+    || salmonRoute.Metrics.Scarcity != 65 || salmonRoute.Metrics.Access != 30
+    || salmonRoute.Evidence.Count != 2 || salmonRoute.Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("Vanilla fish data must retain difficulty, chance, location restrictions, and evidence.");
+}
+
+AcquisitionProfile legendaryFish = acquisitionIndexer.Build("(O)Legend", new AcquisitionIndexData(
+    [new FishingDefinition("(O)Legend", 110, "dart", 0.1, "rainy", ["600", "2000"], 10)],
+    [new FishingSpawn("(O)Legend", "MountainLake", 0.05, "Spring", "PLAYER_HAS_STAT Current FishCaught 0 1", 10, 5, true, 1, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (legendaryFish.Routes.Single().Metrics.Difficulty != 100 || legendaryFish.Routes.Single().Metrics.Uniqueness != 100)
+    throw new InvalidOperationException("Boss/limited fishing routes must preserve their special restrictions.");
+
+var seedShop = new ShopOffer("SeedShop", "(O)ParsnipSeeds", 20, -1, true, null, 0, null);
+AcquisitionProfile parsnip = acquisitionIndexer.Build("(O)24", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(),
+    [new CropDefinition("(O)ParsnipSeeds", "(O)24", 4, ["Spring"], -1, 1, 1, 0, 0, true, false, false, false)],
+    [seedShop], Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute parsnipRoute = parsnip.Routes.Single();
+if (parsnipRoute.Kind != AcquisitionKind.Farming || parsnipRoute.Metrics.Effort != 20
+    || !parsnipRoute.Evidence.Any(evidence => evidence.Detail.Contains("price=20", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Crop routes must retain growth, season, yield, and reliable seed-shop evidence.");
+}
+
+AcquisitionProfile regrowCrop = acquisitionIndexer.Build("(O)188", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(),
+    [new CropDefinition("(O)GrapeStarter", "(O)188", 10, ["Fall"], 3, 1, 1, 0.1, 0, true, false, false, false)],
+    Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (regrowCrop.Routes.Single().Metrics.Farmability != 100)
+    throw new InvalidOperationException("Regrow crops must retain their renewable farming route.");
+
+var shopOffer = new ShopOffer("Clint", "(O)380", 150, -1, true, null, 0, "PLAYER_HAS_MAIL Current mineAccess");
+AcquisitionProfile coalShop = acquisitionIndexer.Build("(O)380", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(),
+    [shopOffer], Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute coalShopRoute = coalShop.Routes.Single();
+if (coalShopRoute.Kind != AcquisitionKind.Shop || coalShopRoute.Metrics.Farmability != 100
+    || coalShopRoute.Metrics.Scarcity != 0 || coalShopRoute.Evidence.Single().Condition != shopOffer.Condition)
+{
+    throw new InvalidOperationException("Unlimited gold shop routes must stay explicit, available, and conditional when applicable.");
+}
+
+AcquisitionProfile specialCurrencyShop = acquisitionIndexer.Build("(O)GalaxySoul", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(),
+    [new ShopOffer("QiGemShop", "(O)GalaxySoul", 40, -1, false, "(O)858", 40, null)],
+    Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (!specialCurrencyShop.Routes.Single().Evidence.Single().Detail.Contains("currency=non-gold", StringComparison.Ordinal))
+    throw new InvalidOperationException("Special shop currencies must remain explicit rather than being converted to gold.");
+
+AcquisitionProfile forage = acquisitionIndexer.Build("(O)16", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    [new ForageSpawn("(O)16", "Forest", 0.4, "Spring", null)],
+    [new ItemMetadata("(O)16", -81, ["forage_item", "season_spring"])]));
+if (forage.Routes.Single().Kind != AcquisitionKind.Foraging || forage.Routes.Single().Confidence != AcquisitionConfidence.High)
+    throw new InvalidOperationException("Location forage spawn data must create an evidenced forage route.");
+
+AcquisitionProfile tagOnlyForage = acquisitionIndexer.Build("(O)Mod.Foraged", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    Array.Empty<ForageSpawn>(), [new ItemMetadata("(O)Mod.Foraged", -81, ["forage_item"])]));
+if (tagOnlyForage.Routes.Single().Confidence != AcquisitionConfidence.Low)
+    throw new InvalidOperationException("Metadata-only forage must remain a partial low-confidence route.");
+
+AcquisitionProfile missing = acquisitionIndexer.Build("(O)Mod.Missing", AcquisitionIndexData.Empty);
+if (missing.Routes.Single().Kind != AcquisitionKind.Unknown || missing.Routes.Single().Confidence != AcquisitionConfidence.Low)
+    throw new InvalidOperationException("Missing and modded string IDs must remain explicit low-confidence unknown routes.");
+
+var extendedData = AcquisitionIndexData.Empty with
+{
+    GeodeDrops = [new GeodeDrop("(O)535", "(O)72", 0.01, 1, 1, "PLAYER_HAS_MAIL Current mineAccess")],
+    MachineProductions = [new MachineProduction("(BC)12", [new ProductionInput("(O)378", 5)], "(O)334", 1, 1, 120, 0,
+        "PLAYER_HAS_CRAFTING_RECIPE Current Furnace")],
+    Recipes =
+    [
+        new RecipeProduction(AcquisitionKind.Crafting, "CopperBar", [new ProductionInput("(O)378", 5)], "(O)334", 1, "s Mining 3"),
+        new RecipeProduction(AcquisitionKind.Cooking, "FruitSalad", [new ProductionInput("-79", 1, true), new ProductionInput("(O)613", 1)], "(O)610", 1, "f Caroline 3")
+    ]
+};
+AcquisitionProfile geodeResult = acquisitionIndexer.Build("(O)72", extendedData);
+if (geodeResult.Routes.Single().Kind != AcquisitionKind.Geode || geodeResult.Routes.Single().Metrics.Scarcity != 99
+    || geodeResult.Routes.Single().Evidence.Single().Condition is null)
+{
+    throw new InvalidOperationException("Geode routes must preserve their source, chance, output count, and conditions.");
+}
+
+AcquisitionProfile machineResult = acquisitionIndexer.Build("(O)334", extendedData);
+AcquisitionRoute machineRoute = machineResult.Routes.Single(route => route.Kind == AcquisitionKind.Machine);
+if (machineRoute.Metrics.Effort != 12 || !machineRoute.Evidence.Single().Detail.Contains("(O)378 x5", StringComparison.Ordinal)
+    || machineRoute.Evidence.Single().Condition is null || machineRoute.Production?.Inputs.Single().Quantity != 5
+    || machineRoute.Production.ExpectedOutput != 1d)
+{
+    throw new InvalidOperationException("Machine routes must retain input quantity, output quantity, processing time, conditions, and static production facts.");
+}
+
+AcquisitionProfile craftingResult = acquisitionIndexer.Build("(O)334", extendedData);
+if (craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Evidence.Single().Detail.Contains("(O)378 x5") != true
+    || craftingResult.Routes.Single(route => route.Kind == AcquisitionKind.Crafting).Production?.ExpectedOutput != 1d)
+    throw new InvalidOperationException("Crafting routes must retain recipe dependencies without recursively valuing them.");
+
+AcquisitionProfile cookingResult = acquisitionIndexer.Build("(O)610", extendedData);
+if (cookingResult.Routes.Single().Kind != AcquisitionKind.Cooking
+    || !cookingResult.Routes.Single().Evidence.Single().Detail.Contains("category=-79 x1", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Cooking routes must retain category and item recipe dependencies.");
+}
+
+AcquisitionProfile mineralOnly = acquisitionIndexer.Build("(O)Mod.Mineral", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    Array.Empty<ForageSpawn>(), [new ItemMetadata("(O)Mod.Mineral", -2, ["mineral_item"])]));
+if (mineralOnly.Routes.Single().Kind != AcquisitionKind.Unknown)
+    throw new InvalidOperationException("A mineral tag alone must not invent a mining route or difficulty.");
+
+// Points valuation is deterministic, bounded, player-independent, and only trusts reliable routes for selection.
+AcquisitionRoute reliableNeutralRoute = new(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Data/Shops", "canonical test")]);
+var neutralProfile = new AcquisitionProfile("(O)Neutral", [reliableNeutralRoute]);
+ValuationBreakdown firstValuation = pointsEngine.Evaluate(neutralProfile, 100);
+ValuationBreakdown secondValuation = pointsEngine.Evaluate(neutralProfile, 100);
+if (firstValuation.Points != secondValuation.Points || firstValuation.SelectedMultiplier != secondValuation.SelectedMultiplier
+    || !firstValuation.Routes.Select(route => (route.Score, route.Multiplier, route.Points)).SequenceEqual(
+        secondValuation.Routes.Select(route => (route.Score, route.Multiplier, route.Points)))
+    || firstValuation.Points != 100 || firstValuation.SelectedMultiplier != 1d)
+    throw new InvalidOperationException("Points valuation must be deterministic and independent of player state.");
+
+double rarity50 = pointsEngine.NormalizeProbabilityRarity(0.5d);
+double rarity10 = pointsEngine.NormalizeProbabilityRarity(0.1d);
+double rarity1 = pointsEngine.NormalizeProbabilityRarity(0.01d);
+double rarityPoint1 = pointsEngine.NormalizeProbabilityRarity(0.001d);
+if (!(rarity50 < rarity10 && rarity10 < rarity1 && rarity1 < rarityPoint1 && rarityPoint1 == 1d
+    && pointsEngine.NormalizeProbabilityRarity(0d) == 1d))
+    throw new InvalidOperationException("Probability rarity must be monotonic and strongly distinguish rare drops.");
+
+ValuationBreakdown commonProbability = pointsEngine.Evaluate(new AcquisitionProfile("(O)CommonProbability",
+    [new AcquisitionRoute(AcquisitionKind.Geode, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, 0.5d), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "50%")])]), 100);
+ValuationBreakdown rareProbability = pointsEngine.Evaluate(new AcquisitionProfile("(O)RareProbability",
+    [new AcquisitionRoute(AcquisitionKind.Geode, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, 0.001d), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "0.1%")])]), 100);
+if (rareProbability.Points <= commonProbability.Points)
+    throw new InvalidOperationException("Route probability rarity must increase points nonlinearly for rarer drops.");
+
+ValuationBreakdown easy = pointsEngine.Evaluate(new AcquisitionProfile("(O)Easy",
+    [new AcquisitionRoute(AcquisitionKind.Fishing, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "easy")])]), 100);
+ValuationBreakdown hard = pointsEngine.Evaluate(new AcquisitionProfile("(O)Hard",
+    [new AcquisitionRoute(AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "hard")])]), 100);
+if (hard.Points <= easy.Points || hard.SelectedMultiplier > PointsValuationEngine.MaximumMultiplier
+    || hard.SelectedMultiplier < PointsValuationEngine.MinimumMultiplier)
+{
+    throw new InvalidOperationException("Difficulty must be monotonic and the multiplier must remain bounded.");
+}
+
+var missingMetricsProfile = new AcquisitionProfile("(O)MissingMetrics",
+    [new AcquisitionRoute(AcquisitionKind.Unknown, new AcquisitionMetrics(null, null, null, null, null, null, null), AcquisitionConfidence.Low,
+        [new AcquisitionEvidence("Test", "missing")])]);
+if (pointsEngine.Evaluate(missingMetricsProfile, 100).Points != 100 || pointsEngine.Evaluate(missingMetricsProfile, 0).Points != 0)
+    throw new InvalidOperationException("Missing metadata and zero base value must fall back safely to the canonical base.");
+
+var reliableHard = new AcquisitionRoute(AcquisitionKind.Fishing,
+    new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "reliable hard")]);
+var guessedEasy = new AcquisitionRoute(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100), AcquisitionConfidence.Low,
+    [new AcquisitionEvidence("Test", "guessed easy")]);
+ValuationBreakdown confidenceValuation = pointsEngine.Evaluate(new AcquisitionProfile("(O)Confidence", [reliableHard, guessedEasy]), 100);
+if (confidenceValuation.Points != pointsEngine.Evaluate(new AcquisitionProfile("(O)ReliableOnly", [reliableHard]), 100).Points
+    || confidenceValuation.Routes.Count != 2)
+{
+    throw new InvalidOperationException("A low-confidence route must be visible but cannot make a reliable rare route cheap.");
+}
+
+ValuationBreakdown hugeBase = pointsEngine.Evaluate(neutralProfile, int.MaxValue);
+if (hugeBase.Points != int.MaxValue || hugeBase.Routes.Any(route => double.IsNaN(route.Multiplier) || double.IsInfinity(route.Multiplier)))
+    throw new InvalidOperationException("Huge base values and extreme metrics must not overflow, produce NaN, or produce infinity.");
+
+ExpectPointsException(-0.01d);
+ExpectPointsException(1.01d);
+
+// Production routes may increase a product to its static input cost, but a separate
+// legitimate route may still be cheaper. Dynamic or incomplete recipes stay visible
+// without fabricating a dependency value.
+var oreProfile = new AcquisitionProfile("(O)Ore", [new AcquisitionRoute(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "ore shop")])]);
+var barProfile = new AcquisitionProfile("(O)Bar", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 40, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "five ore to one bar")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 5)], 1, 1))]);
+ValuationBreakdown barValue = pointsEngine.Evaluate(barProfile, 50, [new ValuationInput(oreProfile, 20)]);
+RouteValuationBreakdown barRouteValue = barValue.Routes.Single();
+if (barRouteValue.ProductionFloor != 100 || barRouteValue.ProductionMultiplier <= 1d || barValue.Points <= 100)
+    throw new InvalidOperationException("An ore-to-bar route must include the input-cost production floor and bounded processing cost.");
+
+var fruitProfile = new AcquisitionProfile("(O)Fruit", [new AcquisitionRoute(AcquisitionKind.Farming,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "fruit")])]);
+var wineProfile = new AcquisitionProfile("(O)Wine", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 60, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "fruit to wine")],
+    new ProductionRelationship([new ProductionInput("(O)Fruit", 1)], 1, 1))]);
+if (pointsEngine.Evaluate(wineProfile, 1, [new ValuationInput(fruitProfile, 10)]).Points <= 10)
+    throw new InvalidOperationException("A wine-like machine product must not be cheaper than its fruit input.");
+
+var multiOutputProfile = new AcquisitionProfile("(O)Bolts", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 20, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "six ore to two bolts")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 6)], 2, 2))]);
+RouteValuationBreakdown multiOutputRoute = pointsEngine.Evaluate(multiOutputProfile, 1,
+    [new ValuationInput(oreProfile, 20)]).Routes.Single();
+if (multiOutputRoute.ProductionFloor != 60)
+    throw new InvalidOperationException("A multi-output recipe must divide static input cost by its deterministic output quantity.");
+
+var cycleA = new AcquisitionProfile("(O)CycleA", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "cycle A")], new ProductionRelationship([new ProductionInput("(O)CycleB", 1)], 1, 1))]);
+var cycleB = new AcquisitionProfile("(O)CycleB", [new AcquisitionRoute(AcquisitionKind.Crafting,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "cycle B")], new ProductionRelationship([new ProductionInput("(O)CycleA", 1)], 1, 1))]);
+if (pointsEngine.Evaluate(cycleA, 10, [new ValuationInput(cycleB, 10)]).Points != 10)
+    throw new InvalidOperationException("Cyclic recipes must terminate without inventing a cheaper recursive value.");
+
+var missingIngredientProfile = new AcquisitionProfile("(O)MissingIngredientProduct", [new AcquisitionRoute(AcquisitionKind.Cooking,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "missing input")], new ProductionRelationship([new ProductionInput("(O)Absent", 1)], 1, 1))]);
+RouteValuationBreakdown missingIngredientRoute = pointsEngine.Evaluate(missingIngredientProfile, 25).Routes.Single();
+if (missingIngredientRoute.ProductionFloor.HasValue || !missingIngredientRoute.ProductionReason!.Contains("Missing", StringComparison.Ordinal))
+    throw new InvalidOperationException("A missing production input must remain partial and must not throw.");
+
+var alternateRouteProfile = new AcquisitionProfile("(O)Alternate", [
+    new AcquisitionRoute(AcquisitionKind.Machine, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "expensive production")], new ProductionRelationship([new ProductionInput("(O)Ore", 5)], 1, 1)),
+    new AcquisitionRoute(AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "legitimate cheap shop")])
+]);
+if (pointsEngine.Evaluate(alternateRouteProfile, 10, [new ValuationInput(oreProfile, 20)]).Points != 10)
+    throw new InvalidOperationException("A legitimate cheaper alternate route must be allowed to determine final points.");
+
+var dynamicOutputProfile = new AcquisitionProfile("(O)Dynamic", [new AcquisitionRoute(AcquisitionKind.Machine,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "custom output method")],
+    new ProductionRelationship([new ProductionInput("(O)Ore", 1)], 1, 1, hasCustomOutputMethod: true))]);
+RouteValuationBreakdown dynamicOutputRoute = pointsEngine.Evaluate(dynamicOutputProfile, 25,
+    [new ValuationInput(oreProfile, 20)]).Routes.Single();
+if (dynamicOutputRoute.ProductionFloor.HasValue || !dynamicOutputRoute.ProductionReason!.Contains("Random or custom", StringComparison.Ordinal))
+    throw new InvalidOperationException("Random or custom machine output must not receive an invented deterministic floor.");
+
+// Balance simulation stays outside gameplay: it exposes route diagnostics and distribution data for representative
+// vanilla categories without adding any item-specific price rule.
+var simulationExporter = new ValuationSimulationExporter(pointsEngine);
+ValuationSimulationReport simulation = simulationExporter.Simulate([
+    new("Common fish", SimulationProfile("(O)CommonFish", AcquisitionKind.Fishing, new AcquisitionMetrics(15, 50, 10, 10, 0, 0, 0, 0.50d)), 75),
+    new("Difficult fish", SimulationProfile("(O)DifficultFish", AcquisitionKind.Fishing, new AcquisitionMetrics(80, 95, 60, 50, 50, 40, 0, 0.05d)), 750),
+    new("Legend", SimulationProfile("(O)Legend", AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 50, 80, 100, 0, 0.01d)), 7500),
+    new("Common crop", SimulationProfile("(O)CommonCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 0, 0, 20, 20, 0, 50)), 35),
+    new("Expensive crop", SimulationProfile("(O)ExpensiveCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 40, 20, 70, 40, 0, 50)), 750),
+    new("Regrow crop", SimulationProfile("(O)RegrowCrop", AcquisitionKind.Farming, new AcquisitionMetrics(0, 40, 20, 70, 40, 0, 100)), 750),
+    new("Common forage", SimulationProfile("(O)CommonForage", AcquisitionKind.Foraging, new AcquisitionMetrics(0, 50, 0, 0, 0, 0, 0, 0.50d)), 100),
+    new("Rare forage", SimulationProfile("(O)RareForage", AcquisitionKind.Foraging, new AcquisitionMetrics(0, 99, 0, 0, 20, 0, 0, 0.01d)), 100),
+    new("Copper resource", SimulationProfile("(O)Copper", AcquisitionKind.Mining, new AcquisitionMetrics(20, 20, 20, 20, 0, 0, 0)), 75),
+    new("Iron resource", SimulationProfile("(O)Iron", AcquisitionKind.Mining, new AcquisitionMetrics(40, 40, 40, 30, 0, 0, 0)), 150),
+    new("Gold resource", SimulationProfile("(O)Gold", AcquisitionKind.Mining, new AcquisitionMetrics(60, 60, 60, 40, 0, 0, 0)), 400),
+    new("Iridium resource", SimulationProfile("(O)Iridium", AcquisitionKind.Mining, new AcquisitionMetrics(80, 80, 80, 50, 20, 0, 0)), 1000),
+    new("Common monster drop", SimulationProfile("(O)CommonDrop", AcquisitionKind.MonsterDrop, new AcquisitionMetrics(10, 30, 20, 10, 0, 0, 0, 0.50d)), 50),
+    new("Rare monster drop", SimulationProfile("(O)RareDrop", AcquisitionKind.MonsterDrop, new AcquisitionMetrics(10, 99, 20, 10, 20, 0, 0, 0.01d)), 50),
+    new("Geode result", SimulationProfile("(O)GeodeResult", AcquisitionKind.Geode, new AcquisitionMetrics(0, 99, 0, 0, 0, 0, 0, 0.01d)), 100),
+    new("Artisan product", SimulationProfile("(O)Wine", AcquisitionKind.Machine, new AcquisitionMetrics(0, 0, 0, 70, 20, 0, 0)), 2300),
+    new("Unlimited shop item", SimulationProfile("(O)ShopItem", AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100)), 500),
+    new("Mass-farmable item", SimulationProfile("(O)MassFarm", AcquisitionKind.Farming, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100)), 100),
+    new("Difficult low-price item", SimulationProfile("(O)HardCheap", AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0, 0.001d)), 10)
+]);
+if (simulation.Statistics.Count != 19 || simulation.Entries.Count != 19 || simulation.BottomOutliers.Count != 10
+    || simulation.TopOutliers.Count != 10 || !simulationExporter.ToCsv(simulation).StartsWith("QualifiedItemId,Name,BasePrice,Points", StringComparison.Ordinal)
+    || !simulationExporter.ToSummary(simulation).Contains("P99=", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Balance simulation must export all entries, distribution statistics, and outliers.");
+}
+
+int PointsFor(string itemId) => simulation.Entries.Single(entry => entry.QualifiedItemId == itemId).Points;
+if (PointsFor("(O)Legend") < 7500 * 5 || PointsFor("(O)Legend") <= PointsFor("(O)DifficultFish")
+    || PointsFor("(O)DifficultFish") <= PointsFor("(O)CommonFish")
+    || PointsFor("(O)RareForage") <= PointsFor("(O)CommonForage")
+    || PointsFor("(O)RareDrop") <= PointsFor("(O)CommonDrop")
+    || PointsFor("(O)RegrowCrop") >= PointsFor("(O)ExpensiveCrop")
+    || PointsFor("(O)MassFarm") >= PointsFor("(O)RareForage"))
+{
+    throw new InvalidOperationException("Balance fixtures must preserve rarity, boss-fish, and renewable-route ordering without item exceptions.");
+}
+
+var shopCapped = new AcquisitionProfile("(O)ShopCapped", [
+    new AcquisitionRoute(AcquisitionKind.Machine, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "difficult production")]),
+    new AcquisitionRoute(AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "unlimited shop", "stock=unlimited")])
+]);
+if (simulationExporter.Simulate([new ValuationSimulationInput("Shop capped", shopCapped, 500)]).Entries.Single().Points >= 500)
+    throw new InvalidOperationException("An unlimited easy shop route must constrain a more difficult alternate route.");
+
+var percentileCheck = new ValuationSimulationStatistics([0, 10, 20, 30]);
+if (percentileCheck.Median != 15d || percentileCheck.P75 != 22.5d || Math.Abs(percentileCheck.P99 - 29.7d) > 1e-12d)
+    throw new InvalidOperationException("Balance percentiles must use a deterministic interpolated calculation.");
+
+// Resolved data-defined mod content uses the same string-ID index path; cache reads once and only refreshes after invalidation.
+int cacheReads = 0;
+AcquisitionIndexData currentCacheData = CacheData(0.50d);
+var cacheDiagnostics = new List<string>();
+var overrides = new Dictionary<string, ItemValuationOverride>(StringComparer.Ordinal)
+{
+    ["(O)Custom.Runtime"] = new() { Source = "Mining", Difficulty = 0.8d, Scarcity = 0.6d },
+    ["(O)Invalid.Override"] = new() { Source = "not-a-route" }
+};
+var profileCache = new AcquisitionProfileCache(() =>
+{
+    cacheReads++;
+    return currentCacheData;
+}, overrides, cacheDiagnostics.Add);
+AcquisitionProfile moddedFishFirst = profileCache.Build("(O)Mod.Author_Fish");
+AcquisitionProfile moddedFishSecond = profileCache.Build("(O)Mod.Author_Fish");
+if (moddedFishFirst.Routes.Single().Kind != AcquisitionKind.Fishing || !ReferenceEquals(moddedFishFirst, moddedFishSecond)
+    || cacheReads != 1)
+{
+    throw new InvalidOperationException("Data-defined modded string IDs must use one cached resolved-data profile.");
+}
+
+AcquisitionProfile runtimeFallback = profileCache.Build("(O)Custom.Runtime");
+if (runtimeFallback.Routes.Count != 2 || runtimeFallback.Routes.Last().Kind != AcquisitionKind.Mining
+    || runtimeFallback.Routes.Last().Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("A manual override must only supplement a conservative unknown fallback.");
+}
+
+AcquisitionProfile missingRuntime = profileCache.Build("(O)Custom.Missing");
+AcquisitionProfile invalidOverride = profileCache.Build("(O)Invalid.Override");
+if (missingRuntime.Routes.Single().Kind != AcquisitionKind.Unknown || missingRuntime.Routes.Single().Confidence != AcquisitionConfidence.Low
+    || invalidOverride.Routes.Single().Kind != AcquisitionKind.Unknown
+    || cacheDiagnostics.Any(message => message.Contains("Custom.Missing", StringComparison.Ordinal))
+    || !cacheDiagnostics.Any(message => message.Contains("Invalid.Override", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Missing metadata must retain a quiet conservative fallback; invalid overrides must be logged.");
+}
+
+int commonFishPoints = pointsEngine.Evaluate(moddedFishFirst, 100).Points;
+int vanillaFishPoints = pointsEngine.Evaluate(profileCache.Build("(O)139"), 100).Points;
+currentCacheData = CacheData(0.01d);
+if (pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points != commonFishPoints)
+    throw new InvalidOperationException("Cached profiles must not change until their source assets are invalidated.");
+profileCache.Invalidate();
+int rareFishPoints = pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points;
+if (cacheReads != 2 || rareFishPoints <= commonFishPoints)
+    throw new InvalidOperationException("Invalidation must rebuild profiles from updated resolved data.");
+
+currentCacheData = CacheData(0.01d, includeUnrelatedItem: true);
+profileCache.Invalidate();
+if (pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points != rareFishPoints
+    || pointsEngine.Evaluate(profileCache.Build("(O)139"), 100).Points != vanillaFishPoints)
+    throw new InvalidOperationException("An unrelated added item must not change an existing vanilla/modded item valuation.");
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
@@ -38,6 +625,36 @@ if (TargetEconomics.SelectTargets("source", 1, selectedSourceValue,
 
 if (TargetEconomics.SelectTargets("source", 0, selectedSourceValue, targetCandidates, TargetFilterMode.All).Count != 0)
     throw new InvalidOperationException("A zero source quantity must be rejected, not treated as one.");
+
+// Points replace only the unit meaning: q * S < T and p = q * S / T remain byte-for-byte economics.
+const int pointSourceQuantity = 3;
+const int pointSourceValue = 2000;
+const int pointTargetValue = 6001;
+if (!TargetEconomics.IsEligible(pointSourceQuantity, pointSourceValue, "points-source", pointTargetValue, "points-target")
+    || TargetEconomics.IsEligible(pointSourceQuantity, pointSourceValue, "points-source", 6000, "points-target")
+    || Math.Abs(TargetEconomics.CalculateChance(pointSourceQuantity, pointSourceValue, pointTargetValue) - 6000d / 6001d) > 1e-12)
+{
+    throw new InvalidOperationException("Points integration must retain strict eligibility and q * S / T chance math.");
+}
+
+var pointsTransactionService = new UpgradeTransactionService(calculator, item => item.Value);
+Item pointSuccessSource = new("points-source", pointSourceQuantity) { Value = pointSourceValue };
+var pointSuccessPlayer = new Farmer(1, pointSuccessSource);
+if (!pointsTransactionService.Apply(pointSuccessPlayer, pointSuccessSource,
+        new Item("points-target", 1) { Value = pointTargetValue }, pointSourceQuantity, 1, success: true).IsSuccess
+    || pointSuccessPlayer.Items.SingleOrDefault() is not { QualifiedItemId: "points-target", Stack: 1 })
+{
+    throw new InvalidOperationException("Points success must consume q source items and produce exactly one target.");
+}
+
+Item pointFailureSource = new("points-source", pointSourceQuantity) { Value = pointSourceValue };
+var pointFailurePlayer = new Farmer(1, pointFailureSource);
+if (!pointsTransactionService.Apply(pointFailurePlayer, pointFailureSource,
+        new Item("points-target", 1) { Value = pointTargetValue }, pointSourceQuantity, 1, success: false).IsSuccess
+    || pointFailurePlayer.Items.Any(item => item is not null))
+{
+    throw new InvalidOperationException("Points failure must consume q source items and produce no target.");
+}
 
 TargetCandidate[] filteredCandidates =
 [
@@ -619,6 +1236,53 @@ void ExpectException<TException>(int source, int target, string parameter) where
         return;
     }
     throw new InvalidOperationException($"Expected {typeof(TException).Name} for {source} -> {target}.");
+}
+
+void ExpectModelException(Action action)
+{
+    try
+    {
+        action();
+    }
+    catch (ArgumentException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException("Expected invalid acquisition-model input to be rejected.");
+}
+
+AcquisitionProfile SimulationProfile(string itemId, AcquisitionKind kind, AcquisitionMetrics metrics) => new(itemId,
+    [new AcquisitionRoute(kind, metrics, AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Simulation", "representative balance fixture", "season=any")])]);
+
+AcquisitionIndexData CacheData(double chance, bool includeUnrelatedItem = false) => new(
+    includeUnrelatedItem
+        ? [new FishingDefinition("(O)Mod.Author_Fish", 30, "mixed", chance, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)139", 30, "mixed", 0.5d, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)Mod.Unrelated", 100, "dart", 0.001d, null, Array.Empty<string>(), 10)]
+        : [new FishingDefinition("(O)Mod.Author_Fish", 30, "mixed", chance, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)139", 30, "mixed", 0.5d, null, Array.Empty<string>(), 0)],
+    includeUnrelatedItem
+        ? [new FishingSpawn("(O)Mod.Author_Fish", "ModBeach", chance, "Spring", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)139", "Beach", 0.5d, "Summer", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)Mod.Unrelated", "Elsewhere", 0.001d, "Winter", null, 10, 5, true, 1, false)]
+        : [new FishingSpawn("(O)Mod.Author_Fish", "ModBeach", chance, "Spring", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)139", "Beach", 0.5d, "Summer", null, 0, 0, false, null, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>());
+
+void ExpectPointsException(double chance)
+{
+    try
+    {
+        pointsEngine.NormalizeProbabilityRarity(chance);
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException("Expected invalid probability rarity input to be rejected.");
 }
 
 void ExpectFilter(TargetFilterMode mode, double chance, bool expected)

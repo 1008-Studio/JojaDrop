@@ -7,6 +7,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Models/AcquisitionIndexData.cs" Link="AcquisitionIndexData.cs" />
+    <Compile Include="../Models/AcquisitionProfile.cs" Link="AcquisitionProfile.cs" />
+    <Compile Include="../Models/ProductionRecipe.cs" Link="ProductionRecipe.cs" />
+    <Compile Include="../Models/ModConfig.cs" Link="ModConfig.cs" />
+    <Compile Include="../Services/AcquisitionProfileIndexer.cs" Link="AcquisitionProfileIndexer.cs" />
+    <Compile Include="../Services/AcquisitionProfileCache.cs" Link="AcquisitionProfileCache.cs" />
+    <Compile Include="../Services/PointsValuationEngine.cs" Link="PointsValuationEngine.cs" />
+    <Compile Include="../Services/FinalPointsCalculator.cs" Link="FinalPointsCalculator.cs" />
+    <Compile Include="../Services/ProductionRecipeExtractor.cs" Link="ProductionRecipeExtractor.cs" />
+    <Compile Include="../Services/FinalPointsCache.cs" Link="FinalPointsCache.cs" />
+    <Compile Include="../Services/ValuationSimulationExporter.cs" Link="ValuationSimulationExporter.cs" />
     <Compile Include="../Models/TargetFilterMode.cs" Link="TargetFilterMode.cs" />
     <Compile Include="../Services/TargetProbabilityFilter.cs" Link="TargetProbabilityFilter.cs" />
     <Compile Include="../Services/TargetEconomics.cs" Link="TargetEconomics.cs" />
