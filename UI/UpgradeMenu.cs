@@ -286,6 +286,11 @@ internal sealed class UpgradeMenu : IClickableMenu
             OpenTargetPicker(TargetFilterMode.All, playSound);
             return;
         }
+        if (CanSelectTargetFilter && TryGetFilterAt(x, y, out int filterIndex))
+        {
+            OpenTargetPicker(FilterModes[filterIndex], playSound);
+            return;
+        }
         if (upgradeButton.containsPoint(x, y) && CanUpgrade)
             ProcessUpgrade();
     }
@@ -597,6 +602,21 @@ internal sealed class UpgradeMenu : IClickableMenu
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
+
+    private bool TryGetFilterAt(int x, int y, out int filterIndex)
+    {
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            if (filterButtons[i].containsPoint(x, y))
+            {
+                filterIndex = i;
+                return true;
+            }
+        }
+
+        filterIndex = -1;
+        return false;
+    }
 
     private bool TryGetFilterHoverText(int x, int y, out string text)
     {
