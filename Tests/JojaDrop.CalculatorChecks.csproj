@@ -7,7 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Models/AcquisitionIndexData.cs" Link="AcquisitionIndexData.cs" />
     <Compile Include="../Models/AcquisitionProfile.cs" Link="AcquisitionProfile.cs" />
+    <Compile Include="../Services/AcquisitionProfileIndexer.cs" Link="AcquisitionProfileIndexer.cs" />
     <Compile Include="../Models/TargetFilterMode.cs" Link="TargetFilterMode.cs" />
     <Compile Include="../Services/TargetProbabilityFilter.cs" Link="TargetProbabilityFilter.cs" />
     <Compile Include="../Services/TargetEconomics.cs" Link="TargetEconomics.cs" />

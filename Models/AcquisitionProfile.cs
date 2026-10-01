@@ -28,14 +28,14 @@ public enum AcquisitionConfidence
     High
 }
 
-/// <summary>Normalized route metrics, each on a 0 through 100 scale.</summary>
+/// <summary>Known normalized route metrics, each on a 0 through 100 scale.</summary>
 public sealed record AcquisitionMetrics
 {
     public const int Minimum = 0;
     public const int Maximum = 100;
 
-    public AcquisitionMetrics(int difficulty, int scarcity, int access, int effort, int restrictions,
-        int uniqueness, int farmability)
+    public AcquisitionMetrics(int? difficulty, int? scarcity, int? access, int? effort, int? restrictions,
+        int? uniqueness, int? farmability)
     {
         Difficulty = Validate(difficulty, nameof(difficulty));
         Scarcity = Validate(scarcity, nameof(scarcity));
@@ -46,17 +46,17 @@ public sealed record AcquisitionMetrics
         Farmability = Validate(farmability, nameof(farmability));
     }
 
-    public int Difficulty { get; }
-    public int Scarcity { get; }
-    public int Access { get; }
-    public int Effort { get; }
-    public int Restrictions { get; }
-    public int Uniqueness { get; }
-    public int Farmability { get; }
+    public int? Difficulty { get; }
+    public int? Scarcity { get; }
+    public int? Access { get; }
+    public int? Effort { get; }
+    public int? Restrictions { get; }
+    public int? Uniqueness { get; }
+    public int? Farmability { get; }
 
-    private static int Validate(int value, string parameterName)
+    private static int? Validate(int? value, string parameterName)
     {
-        if (value < Minimum || value > Maximum)
+        if (value.HasValue && (value.Value < Minimum || value.Value > Maximum))
             throw new ArgumentOutOfRangeException(parameterName, value, $"Metrics must be between {Minimum} and {Maximum}.");
 
         return value;

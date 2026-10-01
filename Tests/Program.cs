@@ -5,6 +5,7 @@ using StardewValley;
 var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
+var acquisitionIndexer = new AcquisitionProfileIndexer();
 
 // Acquisition profiles stay pure domain data: every route is evidenced and an
 // item may retain independent routes instead of being forced into one source type.
@@ -57,6 +58,80 @@ ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Shop, metrics, A
 ExpectModelException(() => new AcquisitionProfile(" ", [fishRoute]));
 ExpectModelException(() => new AcquisitionProfile("(O)128", Array.Empty<AcquisitionRoute>()));
 ExpectModelException(() => new ValuationBreakdown(coalProfile, -1));
+
+// Core acquisition routes are indexed from fixture data without Stardew runtime or numeric item-ID assumptions.
+AcquisitionProfile salmon = acquisitionIndexer.Build("(O)139", new AcquisitionIndexData(
+    [new FishingDefinition("(O)139", 70, "mixed", 0.3, "rainy", ["600", "1900"], 3)],
+    [new FishingSpawn("(O)139", "Town", 0.35, "Fall", "PLAYER_HAS_SEEN_EVENT Current 3910979", 2, 3, false, null, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute salmonRoute = salmon.Routes.Single();
+if (salmonRoute.Kind != AcquisitionKind.Fishing || salmonRoute.Metrics.Difficulty != 70
+    || salmonRoute.Metrics.Scarcity != 65 || salmonRoute.Metrics.Access != 30
+    || salmonRoute.Evidence.Count != 2 || salmonRoute.Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("Vanilla fish data must retain difficulty, chance, location restrictions, and evidence.");
+}
+
+AcquisitionProfile legendaryFish = acquisitionIndexer.Build("(O)Legend", new AcquisitionIndexData(
+    [new FishingDefinition("(O)Legend", 110, "dart", 0.1, "rainy", ["600", "2000"], 10)],
+    [new FishingSpawn("(O)Legend", "MountainLake", 0.05, "Spring", "PLAYER_HAS_STAT Current FishCaught 0 1", 10, 5, true, 1, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (legendaryFish.Routes.Single().Metrics.Difficulty != 100 || legendaryFish.Routes.Single().Metrics.Uniqueness != 100)
+    throw new InvalidOperationException("Boss/limited fishing routes must preserve their special restrictions.");
+
+var seedShop = new ShopOffer("SeedShop", "(O)ParsnipSeeds", 20, -1, true, null, 0, null);
+AcquisitionProfile parsnip = acquisitionIndexer.Build("(O)24", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(),
+    [new CropDefinition("(O)ParsnipSeeds", "(O)24", 4, ["Spring"], -1, 1, 1, 0, 0, true, false, false, false)],
+    [seedShop], Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute parsnipRoute = parsnip.Routes.Single();
+if (parsnipRoute.Kind != AcquisitionKind.Farming || parsnipRoute.Metrics.Effort != 20
+    || !parsnipRoute.Evidence.Any(evidence => evidence.Detail.Contains("price=20", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Crop routes must retain growth, season, yield, and reliable seed-shop evidence.");
+}
+
+AcquisitionProfile regrowCrop = acquisitionIndexer.Build("(O)188", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(),
+    [new CropDefinition("(O)GrapeStarter", "(O)188", 10, ["Fall"], 3, 1, 1, 0.1, 0, true, false, false, false)],
+    Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (regrowCrop.Routes.Single().Metrics.Farmability != 100)
+    throw new InvalidOperationException("Regrow crops must retain their renewable farming route.");
+
+var shopOffer = new ShopOffer("Clint", "(O)380", 150, -1, true, null, 0, "PLAYER_HAS_MAIL Current mineAccess");
+AcquisitionProfile coalShop = acquisitionIndexer.Build("(O)380", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(),
+    [shopOffer], Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+AcquisitionRoute coalShopRoute = coalShop.Routes.Single();
+if (coalShopRoute.Kind != AcquisitionKind.Shop || coalShopRoute.Metrics.Farmability != 100
+    || coalShopRoute.Metrics.Scarcity != 0 || coalShopRoute.Evidence.Single().Condition != shopOffer.Condition)
+{
+    throw new InvalidOperationException("Unlimited gold shop routes must stay explicit, available, and conditional when applicable.");
+}
+
+AcquisitionProfile specialCurrencyShop = acquisitionIndexer.Build("(O)GalaxySoul", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(),
+    [new ShopOffer("QiGemShop", "(O)GalaxySoul", 40, -1, false, "(O)858", 40, null)],
+    Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>()));
+if (!specialCurrencyShop.Routes.Single().Evidence.Single().Detail.Contains("currency=non-gold", StringComparison.Ordinal))
+    throw new InvalidOperationException("Special shop currencies must remain explicit rather than being converted to gold.");
+
+AcquisitionProfile forage = acquisitionIndexer.Build("(O)16", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    [new ForageSpawn("(O)16", "Forest", 0.4, "Spring", null)],
+    [new ItemMetadata("(O)16", -81, ["forage_item", "season_spring"])]));
+if (forage.Routes.Single().Kind != AcquisitionKind.Foraging || forage.Routes.Single().Confidence != AcquisitionConfidence.High)
+    throw new InvalidOperationException("Location forage spawn data must create an evidenced forage route.");
+
+AcquisitionProfile tagOnlyForage = acquisitionIndexer.Build("(O)Mod.Foraged", new AcquisitionIndexData(
+    Array.Empty<FishingDefinition>(), Array.Empty<FishingSpawn>(), Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(),
+    Array.Empty<ForageSpawn>(), [new ItemMetadata("(O)Mod.Foraged", -81, ["forage_item"])]));
+if (tagOnlyForage.Routes.Single().Confidence != AcquisitionConfidence.Low)
+    throw new InvalidOperationException("Metadata-only forage must remain a partial low-confidence route.");
+
+AcquisitionProfile missing = acquisitionIndexer.Build("(O)Mod.Missing", AcquisitionIndexData.Empty);
+if (missing.Routes.Single().Kind != AcquisitionKind.Unknown || missing.Routes.Single().Confidence != AcquisitionConfidence.Unknown)
+    throw new InvalidOperationException("Missing and modded string IDs must remain explicit unknown routes.");
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
