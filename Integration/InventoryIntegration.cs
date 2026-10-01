@@ -47,6 +47,8 @@ internal sealed class InventoryIntegration
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
 
+    public void InvalidateValueCache() => targetItemProvider.InvalidateCache();
+
     private static GameMenu? GetInventoryMenu()
     {
         return Context.IsWorldReady

@@ -457,6 +457,36 @@ if (TargetEconomics.SelectTargets("source", 1, selectedSourceValue,
 if (TargetEconomics.SelectTargets("source", 0, selectedSourceValue, targetCandidates, TargetFilterMode.All).Count != 0)
     throw new InvalidOperationException("A zero source quantity must be rejected, not treated as one.");
 
+// Points replace only the unit meaning: q * S < T and p = q * S / T remain byte-for-byte economics.
+const int pointSourceQuantity = 3;
+const int pointSourceValue = 2000;
+const int pointTargetValue = 6001;
+if (!TargetEconomics.IsEligible(pointSourceQuantity, pointSourceValue, "points-source", pointTargetValue, "points-target")
+    || TargetEconomics.IsEligible(pointSourceQuantity, pointSourceValue, "points-source", 6000, "points-target")
+    || Math.Abs(TargetEconomics.CalculateChance(pointSourceQuantity, pointSourceValue, pointTargetValue) - 6000d / 6001d) > 1e-12)
+{
+    throw new InvalidOperationException("Points integration must retain strict eligibility and q * S / T chance math.");
+}
+
+var pointsTransactionService = new UpgradeTransactionService(calculator, item => item.Value);
+Item pointSuccessSource = new("points-source", pointSourceQuantity) { Value = pointSourceValue };
+var pointSuccessPlayer = new Farmer(1, pointSuccessSource);
+if (!pointsTransactionService.Apply(pointSuccessPlayer, pointSuccessSource,
+        new Item("points-target", 1) { Value = pointTargetValue }, pointSourceQuantity, 1, success: true).IsSuccess
+    || pointSuccessPlayer.Items.SingleOrDefault() is not { QualifiedItemId: "points-target", Stack: 1 })
+{
+    throw new InvalidOperationException("Points success must consume q source items and produce exactly one target.");
+}
+
+Item pointFailureSource = new("points-source", pointSourceQuantity) { Value = pointSourceValue };
+var pointFailurePlayer = new Farmer(1, pointFailureSource);
+if (!pointsTransactionService.Apply(pointFailurePlayer, pointFailureSource,
+        new Item("points-target", 1) { Value = pointTargetValue }, pointSourceQuantity, 1, success: false).IsSuccess
+    || pointFailurePlayer.Items.Any(item => item is not null))
+{
+    throw new InvalidOperationException("Points failure must consume q source items and produce no target.");
+}
+
 TargetCandidate[] filteredCandidates =
 [
     new("101", 101), new("200", 200), new("250", 250), new("300", 300), new("500", 500), new("1000", 1000)
