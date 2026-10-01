@@ -46,14 +46,25 @@ internal sealed class InventoryIntegration
         helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
     }
-
+  
     public void InvalidateValueCache() => targetItemProvider.InvalidateCache();
-
-    private static GameMenu? GetInventoryMenu()
+    /// <summary>The active menu when it's the player's inventory, even if another menu or overlay
+    /// was opened over it. The game draws the inventory page first and any child menu on top of it,
+    /// so the inventory stays on screen and the button must stay visible with it.</summary>
+    private static GameMenu? GetVisibleInventoryMenu()
     {
         return Context.IsWorldReady
             && Game1.activeClickableMenu is GameMenu menu
             && menu.GetCurrentPage() is InventoryPage
+            ? menu
+            : null;
+    }
+
+    /// <summary>The active inventory menu when no other menu is opened over it, i.e. when the
+    /// button may be interacted with.</summary>
+    private static GameMenu? GetInventoryMenu()
+    {
+        return GetVisibleInventoryMenu() is { } menu
             && menu.GetChildMenu() is null
             && menu.GetCurrentPage().GetChildMenu() is null
             ? menu
@@ -62,7 +73,7 @@ internal sealed class InventoryIntegration
 
     private void OnRenderingActiveMenu(object? sender, RenderingActiveMenuEventArgs e)
     {
-        if (GetInventoryMenu() is null)
+        if (GetVisibleInventoryMenu() is null)
             return;
 
         hiddenCursorTransparency = Game1.mouseCursorTransparency;
@@ -78,13 +89,17 @@ internal sealed class InventoryIntegration
         Game1.mouseCursorTransparency = hiddenCursorTransparency;
         restoreCursor = false;
 
-        GameMenu? menu = GetInventoryMenu();
+        GameMenu? menu = GetVisibleInventoryMenu();
         if (menu is null)
             return;
 
+        // The button stays visible whenever the inventory is on screen, including when another
+        // menu/overlay is opened over it; it's drawn disabled exactly when the input handler
+        // below refuses to interact with it.
         UpgradeButton button = buttons.Value;
         button.UpdateLayout(menu);
-        button.Draw(e.SpriteBatch, Game1.getMouseX(true), Game1.getMouseY(true), menu.readyToClose());
+        button.Draw(e.SpriteBatch, Game1.getMouseX(true), Game1.getMouseY(true),
+            enabled: GetInventoryMenu() is not null && menu.readyToClose());
         menu.drawMouse(e.SpriteBatch);
     }
 

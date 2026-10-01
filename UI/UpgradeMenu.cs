@@ -77,6 +77,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private double currentChance;
     private bool rouletteResult;
     private float rouletteTargetAngle;
+    private int lastSpinTickIndex;
     private Item? pendingSource;
     private TargetItemOption? pendingTarget;
     private int pendingSourceQuantity;
@@ -188,6 +189,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         {
             // The transaction is applied after the spin finishes. Never cancel a spin mid-flight.
             rouletteAnimationTimer += (float)time.ElapsedGameTime.TotalSeconds;
+            PlaySpinTick();
             if (rouletteAnimationTimer >= RouletteWheel.SpinDuration)
             {
                 isAnimatingRoulette = false;
@@ -526,12 +528,40 @@ internal sealed class UpgradeMenu : IClickableMenu
             hasRolledCurrentSelection = true;
             isAnimatingRoulette = true;
             rouletteAnimationTimer = 0f;
+            lastSpinTickIndex = GetSpinBoundaryIndex(RouletteWheel.CalculatePointerAngle(0f, true, rouletteTargetAngle));
             Game1.playSound("cowboy_monsterhit");
         }
         finally
         {
             isProcessingUpgrade = false;
         }
+    }
+
+    /// <summary>
+    /// Plays the Stardew Valley Fair wheel tick cue (<c>Cowboy_gunshot</c>) whenever the
+    /// needle crosses a sector edge, mirroring <c>WheelSpinGame</c>. The cue is one-shot,
+    /// so nothing needs to be stopped: ticks stop by themselves once the spin ends.
+    /// </summary>
+    private void PlaySpinTick()
+    {
+        float angle = RouletteWheel.CalculatePointerAngle(rouletteAnimationTimer, true, rouletteTargetAngle);
+        int tickIndex = GetSpinBoundaryIndex(angle);
+        if (tickIndex == lastSpinTickIndex)
+            return;
+
+        lastSpinTickIndex = tickIndex;
+        Game1.playSound("Cowboy_gunshot");
+    }
+
+    /// <summary>
+    /// Counts sector edges passed by the needle: one at 12 o'clock, one at the end of the
+    /// winning sector. Increments once per edge, so an unchanged value means no tick.
+    /// </summary>
+    private int GetSpinBoundaryIndex(float angle)
+    {
+        const float twoPi = MathF.PI * 2f;
+        float winningAngle = Math.Clamp((float)currentChance * twoPi, 0f, twoPi);
+        return (int)MathF.Floor(angle / twoPi) + (int)MathF.Floor((angle - winningAngle) / twoPi);
     }
 
     private void CompleteUpgrade()
