@@ -33,6 +33,16 @@ internal sealed class UpgradeMenu : IClickableMenu
     private const int SourceIncreaseId = 105;
     private const int OutputDecreaseId = 106;
     private const int OutputIncreaseId = 107;
+    private const int FilterIdOffset = 108;
+    private const int FilterButtonSize = 30;
+    private const int FilterButtonGap = 4;
+    private const int FilterButtonSlotGap = 8;
+    private const int FilterButtonTextPadding = 4;
+    private static readonly TargetFilterMode[] FilterModes =
+    {
+        TargetFilterMode.X2, TargetFilterMode.X3, TargetFilterMode.X5, TargetFilterMode.X10
+    };
+    private static readonly string[] FilterLabels = { "x2", "x3", "x5", "x10" };
     private readonly ItemValueService itemValues;
     private readonly UpgradeCalculator upgradeCalculator;
     private readonly UpgradeRoller upgradeRoller;
@@ -50,6 +60,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private ClickableComponent sourceIncreaseButton = null!;
     private ClickableComponent outputDecreaseButton = null!;
     private ClickableComponent outputIncreaseButton = null!;
+    private readonly ClickableComponent[] filterButtons = new ClickableComponent[FilterModes.Length];
     private Item? sourceItem;
     private TargetItemOption? targetOption;
     private int sourceQuantity = 1;
@@ -110,7 +121,8 @@ internal sealed class UpgradeMenu : IClickableMenu
         targetSlot = new ClickableComponent(new Rectangle(xPositionOnScreen + width * 3 / 4 - slotSize / 2,
             slotTop, slotSize, slotSize), "Target Item")
         {
-            myID = TargetId, leftNeighborID = SourceId, downNeighborID = UpgradeId, upNeighborID = CloseId
+            myID = TargetId, leftNeighborID = SourceId, rightNeighborID = FilterIdOffset,
+            downNeighborID = UpgradeId, upNeighborID = CloseId
         };
         upgradeButton = new ClickableComponent(new Rectangle(xPositionOnScreen + (width - buttonWidth) / 2,
             yPositionOnScreen + height - buttonHeight - Scale(ButtonFooterGap), buttonWidth, buttonHeight), "Upgrade")
@@ -133,12 +145,33 @@ internal sealed class UpgradeMenu : IClickableMenu
         outputDecreaseButton.upNeighborID = outputIncreaseButton.upNeighborID = TargetId;
         sourceDecreaseButton.downNeighborID = sourceIncreaseButton.downNeighborID = UpgradeId;
         outputDecreaseButton.downNeighborID = outputIncreaseButton.downNeighborID = UpgradeId;
+
+        // Compact probability filter buttons in a row to the right of the Target Item slot.
+        int filterSize = Scale(FilterButtonSize);
+        int filterStep = Scale(FilterButtonSize + FilterButtonGap);
+        int filterTop = slotTop + slotSize / 2 - filterSize / 2;
+        int filterLeft = targetSlot.bounds.Right + Scale(FilterButtonSlotGap);
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            int id = FilterIdOffset + i;
+            filterButtons[i] = new ClickableComponent(
+                new Rectangle(filterLeft + i * filterStep, filterTop, filterSize, filterSize), FilterLabels[i])
+            {
+                myID = id,
+                leftNeighborID = i == 0 ? TargetId : id - 1,
+                rightNeighborID = i == filterButtons.Length - 1 ? CloseId : id + 1,
+                upNeighborID = CloseId,
+                downNeighborID = UpgradeId
+            };
+        }
+
         initializeUpperRightCloseButton();
         upperRightCloseButton.myID = CloseId;
-        upperRightCloseButton.leftNeighborID = TargetId;
+        upperRightCloseButton.leftNeighborID = FilterIdOffset + filterButtons.Length - 1;
         upperRightCloseButton.downNeighborID = TargetId;
         allClickableComponents = new List<ClickableComponent> { sourceSlot, targetSlot, sourceDecreaseButton, sourceIncreaseButton,
             outputDecreaseButton, outputIncreaseButton, upgradeButton, upperRightCloseButton };
+        allClickableComponents.AddRange(filterButtons);
 
         if (Game1.options.SnappyMenus)
         {
@@ -328,6 +361,7 @@ internal sealed class UpgradeMenu : IClickableMenu
             : outputIncreaseButton.containsPoint(x, y) ? "Increase output quantity."
             : targetSlot.containsPoint(x, y) && sourceItem is null ? "Select Your Item first."
             : targetSlot.containsPoint(x, y) ? "Choose a target item."
+            : TryGetFilterHoverText(x, y, out string filterHoverText) ? filterHoverText
             : upgradeButton.containsPoint(x, y) && isAnimatingRoulette ? "Upgrade in progress..."
             : upgradeButton.containsPoint(x, y) && hasRolledCurrentSelection ? "Select an item or target to make another attempt."
             : upgradeButton.containsPoint(x, y) && HasUpgradeSelection ? "Attempt an upgrade using the shown chance."
@@ -342,6 +376,7 @@ internal sealed class UpgradeMenu : IClickableMenu
         DrawItemSlot(b, targetSlot, $"Target ×{outputQuantity}", targetOption?.PreviewItem, targetOption?.Value, outputQuantity, sourceItem is not null);
         DrawQuantityControl(b, sourceDecreaseButton, sourceIncreaseButton, sourceQuantity, CanDecreaseSource, CanIncreaseSource);
         DrawQuantityControl(b, outputDecreaseButton, outputIncreaseButton, outputQuantity, CanDecreaseOutput, CanIncreaseOutput);
+        DrawTargetFilterButtons(b);
 
         // Chance and multiplier above UPGRADE button
         int buttonTop = upgradeButton.bounds.Y;
@@ -379,6 +414,7 @@ internal sealed class UpgradeMenu : IClickableMenu
     private bool CanIncreaseSource => sourceItem is not null && sourceQuantity < availableQuantity;
     private bool CanDecreaseOutput => TryGetMinimumOutputQuantity(out int minimumOutput) && outputQuantity > minimumOutput;
     private bool CanIncreaseOutput => sourceItem is not null && outputQuantity < int.MaxValue;
+    private bool CanSelectTargetFilter => sourceItem is not null;
 
     private string GetChanceText()
     {
@@ -561,6 +597,44 @@ internal sealed class UpgradeMenu : IClickableMenu
     }
 
     private static ClickableComponent CreateQuantityButton(int x, int y, int size, int id) => new(new Rectangle(x, y, size, size), "Quantity") { myID = id };
+
+    private bool TryGetFilterHoverText(int x, int y, out string text)
+    {
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            if (!filterButtons[i].containsPoint(x, y))
+                continue;
+
+            text = CanSelectTargetFilter
+                ? $"Targets with ~{TargetProbabilityFilter.GetChanceText(FilterModes[i])} upgrade chance."
+                : "Select Your Item first.";
+            return true;
+        }
+
+        text = "";
+        return false;
+    }
+
+    private void DrawTargetFilterButtons(SpriteBatch b)
+    {
+        int mouseX = Game1.getMouseX(true);
+        int mouseY = Game1.getMouseY(true);
+        bool enabled = CanSelectTargetFilter;
+        for (int i = 0; i < filterButtons.Length; i++)
+        {
+            ClickableComponent button = filterButtons[i];
+            MenuDrawing.TextButton(b, button, FilterLabels[i], button.containsPoint(mouseX, mouseY), enabled,
+                GetFilterTextScale(FilterLabels[i], button.bounds.Width));
+        }
+    }
+
+    private float GetFilterTextScale(string label, int buttonWidth)
+    {
+        float naturalWidth = Game1.smallFont.MeasureString(label).X;
+        return naturalWidth <= 0
+            ? layoutScale
+            : Math.Min(layoutScale, (buttonWidth - Scale(FilterButtonTextPadding)) / naturalWidth);
+    }
 
     private void ChangeSourceQuantity(int delta)
     {
