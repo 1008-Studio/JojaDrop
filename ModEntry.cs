@@ -1,11 +1,15 @@
 using JojaDrop.Integration;
+using JojaDrop.Models;
 using JojaDrop.Services;
 using StardewModdingAPI;
+using StardewModdingAPI.Events;
 
 namespace JojaDrop;
 
 public sealed class ModEntry : Mod
 {
+    private StardewAcquisitionProfileProvider profiles = null!;
+
     public override void Entry(IModHelper helper)
     {
         var upgradeCalculator = new UpgradeCalculator();
@@ -13,7 +17,13 @@ public sealed class ModEntry : Mod
         var itemValues = new ItemValueService();
         var transactionService = new UpgradeTransactionService(upgradeCalculator, itemValues.GetValue);
         var integration = new InventoryIntegration(helper, Monitor, itemValues, upgradeRoller, transactionService);
+        ModConfig config = helper.ReadConfig<ModConfig>();
+        if (!File.Exists(Path.Combine(helper.DirectoryPath, "config.json")))
+            helper.WriteConfig(config);
+        profiles = new StardewAcquisitionProfileProvider(config.ItemOverrides,
+            message => Monitor.Log($"Valuation: {message}", LogLevel.Warn));
         integration.RegisterEvents();
+        helper.Events.Content.AssetsInvalidated += OnAssetsInvalidated;
         helper.ConsoleCommands.Add("jojadrop_balance_export", "Export current Data/Objects points balance CSV.",
             (_, _) => ExportBalance(helper));
         Monitor.Log("JojaDrop loaded successfully.", LogLevel.Info);
@@ -24,7 +34,7 @@ public sealed class ModEntry : Mod
         try
         {
             var exporter = new ValuationSimulationExporter();
-            ValuationSimulationReport report = exporter.Simulate(new StardewAcquisitionProfileProvider().BuildAllObjects());
+            ValuationSimulationReport report = exporter.Simulate(profiles.BuildAllObjects());
             string directory = Path.Combine(helper.DirectoryPath, "balance-simulation");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "valuation.csv"), exporter.ToCsv(report));
@@ -36,4 +46,22 @@ public sealed class ModEntry : Mod
             Monitor.Log($"Balance export failed: {exception}", LogLevel.Error);
         }
     }
+
+    private void OnAssetsInvalidated(object? sender, AssetsInvalidatedEventArgs e)
+    {
+        if (!e.NamesWithoutLocale.Any(IsValuationAsset))
+            return;
+
+        profiles.Invalidate();
+        Monitor.Log("Valuation data cache invalidated after a resolved game-data asset changed.", LogLevel.Trace);
+    }
+
+    private static bool IsValuationAsset(IAssetName name) => name.IsEquivalentTo("Data/Objects")
+        || name.IsEquivalentTo("Data/Fish")
+        || name.IsEquivalentTo("Data/Locations")
+        || name.IsEquivalentTo("Data/Crops")
+        || name.IsEquivalentTo("Data/Shops")
+        || name.IsEquivalentTo("Data/Machines")
+        || name.IsEquivalentTo("Data/CraftingRecipes")
+        || name.IsEquivalentTo("Data/CookingRecipes");
 }

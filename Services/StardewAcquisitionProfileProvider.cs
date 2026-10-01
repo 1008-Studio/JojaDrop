@@ -10,22 +10,26 @@ namespace JojaDrop.Services;
 /// <summary>Adapts the resolved Stardew 1.6 content assets into acquisition-index facts.</summary>
 public sealed class StardewAcquisitionProfileProvider
 {
-    private readonly AcquisitionProfileIndexer indexer = new();
+    private readonly AcquisitionProfileCache cache;
+
+    public StardewAcquisitionProfileProvider(IReadOnlyDictionary<string, ItemValuationOverride>? overrides = null,
+        Action<string>? diagnostic = null) => cache = new AcquisitionProfileCache(ReadData, overrides, diagnostic);
 
     public AcquisitionProfile Build(string qualifiedItemId)
     {
         if (string.IsNullOrWhiteSpace(qualifiedItemId))
             throw new ArgumentException("A qualified item ID is required.", nameof(qualifiedItemId));
-        return indexer.Build(qualifiedItemId, ReadData());
+        return cache.Build(qualifiedItemId);
     }
 
     /// <summary>Builds every currently resolved ordinary-object profile from one game-data snapshot.</summary>
     public IReadOnlyList<ValuationSimulationInput> BuildAllObjects()
     {
-        AcquisitionIndexData data = ReadData();
         return Game1.objectData.Select(item => new ValuationSimulationInput(item.Value.DisplayName,
-            indexer.Build(QualifyObjectId(item.Key), data), Math.Max(0, item.Value.Price))).ToArray();
+            cache.Build(QualifyObjectId(item.Key)), Math.Max(0, item.Value.Price))).ToArray();
     }
+
+    public void Invalidate() => cache.Invalidate();
 
     private static AcquisitionIndexData ReadData()
     {

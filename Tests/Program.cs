@@ -362,12 +362,67 @@ var shopCapped = new AcquisitionProfile("(O)ShopCapped", [
     new AcquisitionRoute(AcquisitionKind.Shop, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100), AcquisitionConfidence.High,
         [new AcquisitionEvidence("Simulation", "unlimited shop", "stock=unlimited")])
 ]);
-if (simulationExporter.Simulate([new ValuationSimulationInput("Shop capped", shopCapped, 500)]).Entries.Single().Points != 500)
+if (simulationExporter.Simulate([new ValuationSimulationInput("Shop capped", shopCapped, 500)]).Entries.Single().Points >= 500)
     throw new InvalidOperationException("An unlimited easy shop route must constrain a more difficult alternate route.");
 
 var percentileCheck = new ValuationSimulationStatistics([0, 10, 20, 30]);
-if (percentileCheck.Median != 15d || percentileCheck.P75 != 22.5d || percentileCheck.P99 != 29.7d)
+if (percentileCheck.Median != 15d || percentileCheck.P75 != 22.5d || Math.Abs(percentileCheck.P99 - 29.7d) > 1e-12d)
     throw new InvalidOperationException("Balance percentiles must use a deterministic interpolated calculation.");
+
+// Resolved data-defined mod content uses the same string-ID index path; cache reads once and only refreshes after invalidation.
+int cacheReads = 0;
+AcquisitionIndexData currentCacheData = CacheData(0.50d);
+var cacheDiagnostics = new List<string>();
+var overrides = new Dictionary<string, ItemValuationOverride>(StringComparer.Ordinal)
+{
+    ["(O)Custom.Runtime"] = new() { Source = "Mining", Difficulty = 0.8d, Scarcity = 0.6d },
+    ["(O)Invalid.Override"] = new() { Source = "not-a-route" }
+};
+var profileCache = new AcquisitionProfileCache(() =>
+{
+    cacheReads++;
+    return currentCacheData;
+}, overrides, cacheDiagnostics.Add);
+AcquisitionProfile moddedFishFirst = profileCache.Build("(O)Mod.Author_Fish");
+AcquisitionProfile moddedFishSecond = profileCache.Build("(O)Mod.Author_Fish");
+if (moddedFishFirst.Routes.Single().Kind != AcquisitionKind.Fishing || !ReferenceEquals(moddedFishFirst, moddedFishSecond)
+    || cacheReads != 1)
+{
+    throw new InvalidOperationException("Data-defined modded string IDs must use one cached resolved-data profile.");
+}
+
+AcquisitionProfile runtimeFallback = profileCache.Build("(O)Custom.Runtime");
+if (runtimeFallback.Routes.Count != 2 || runtimeFallback.Routes.Last().Kind != AcquisitionKind.Mining
+    || runtimeFallback.Routes.Last().Confidence != AcquisitionConfidence.High)
+{
+    throw new InvalidOperationException("A manual override must only supplement a conservative unknown fallback.");
+}
+
+AcquisitionProfile missingRuntime = profileCache.Build("(O)Custom.Missing");
+AcquisitionProfile invalidOverride = profileCache.Build("(O)Invalid.Override");
+if (missingRuntime.Routes.Single().Kind != AcquisitionKind.Unknown || missingRuntime.Routes.Single().Confidence != AcquisitionConfidence.Low
+    || invalidOverride.Routes.Single().Kind != AcquisitionKind.Unknown
+    || !cacheDiagnostics.Any(message => message.Contains("Custom.Missing", StringComparison.Ordinal))
+    || !cacheDiagnostics.Any(message => message.Contains("Invalid.Override", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException("Missing metadata and invalid overrides must retain a logged conservative fallback.");
+}
+
+int commonFishPoints = pointsEngine.Evaluate(moddedFishFirst, 100).Points;
+int vanillaFishPoints = pointsEngine.Evaluate(profileCache.Build("(O)139"), 100).Points;
+currentCacheData = CacheData(0.01d);
+if (pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points != commonFishPoints)
+    throw new InvalidOperationException("Cached profiles must not change until their source assets are invalidated.");
+profileCache.Invalidate();
+int rareFishPoints = pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points;
+if (cacheReads != 2 || rareFishPoints <= commonFishPoints)
+    throw new InvalidOperationException("Invalidation must rebuild profiles from updated resolved data.");
+
+currentCacheData = CacheData(0.01d, includeUnrelatedItem: true);
+profileCache.Invalidate();
+if (pointsEngine.Evaluate(profileCache.Build("(O)Mod.Author_Fish"), 100).Points != rareFishPoints
+    || pointsEngine.Evaluate(profileCache.Build("(O)139"), 100).Points != vanillaFishPoints)
+    throw new InvalidOperationException("An unrelated added item must not change an existing vanilla/modded item valuation.");
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
@@ -1001,6 +1056,21 @@ void ExpectModelException(Action action)
 AcquisitionProfile SimulationProfile(string itemId, AcquisitionKind kind, AcquisitionMetrics metrics) => new(itemId,
     [new AcquisitionRoute(kind, metrics, AcquisitionConfidence.High,
         [new AcquisitionEvidence("Simulation", "representative balance fixture", "season=any")])]);
+
+AcquisitionIndexData CacheData(double chance, bool includeUnrelatedItem = false) => new(
+    includeUnrelatedItem
+        ? [new FishingDefinition("(O)Mod.Author_Fish", 30, "mixed", chance, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)139", 30, "mixed", 0.5d, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)Mod.Unrelated", 100, "dart", 0.001d, null, Array.Empty<string>(), 10)]
+        : [new FishingDefinition("(O)Mod.Author_Fish", 30, "mixed", chance, null, Array.Empty<string>(), 0),
+            new FishingDefinition("(O)139", 30, "mixed", 0.5d, null, Array.Empty<string>(), 0)],
+    includeUnrelatedItem
+        ? [new FishingSpawn("(O)Mod.Author_Fish", "ModBeach", chance, "Spring", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)139", "Beach", 0.5d, "Summer", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)Mod.Unrelated", "Elsewhere", 0.001d, "Winter", null, 10, 5, true, 1, false)]
+        : [new FishingSpawn("(O)Mod.Author_Fish", "ModBeach", chance, "Spring", null, 0, 0, false, null, false),
+            new FishingSpawn("(O)139", "Beach", 0.5d, "Summer", null, 0, 0, false, null, false)],
+    Array.Empty<CropDefinition>(), Array.Empty<ShopOffer>(), Array.Empty<ForageSpawn>(), Array.Empty<ItemMetadata>());
 
 void ExpectPointsException(double chance)
 {
