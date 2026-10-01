@@ -300,16 +300,20 @@ if (transactionService.Apply(legacyPlayer, legacySource, new Item("target", 1), 
 Item sourceA = new("source", 2);
 Item sourceB = new("source", 3);
 var batchPlayer = new Farmer(3, sourceA, sourceB, null);
-UpgradeTransactionResult batchSuccess = transactionService.Apply(batchPlayer, sourceA, new Item("target", 1), 3, 2, success: true);
-if (!batchSuccess.IsSuccess || batchPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 2 } || sourceB.Stack != 2)
-    throw new InvalidOperationException("A successful batch transaction must consume q across stacks and create r targets.");
+UpgradeTransactionResult batchSuccess = transactionService.Apply(batchPlayer, sourceA, new Item("target", 1) { Value = 4 }, 3, 1, success: true);
+if (!batchSuccess.IsSuccess || batchPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 1 } || sourceB.Stack != 2
+    || batchPlayer.Items.Count(item => item is { QualifiedItemId: "target" }) != 1
+    || batchPlayer.Items.Count(item => item is not null) != 2)
+{
+    throw new InvalidOperationException("A successful batch must consume q across stacks and create exactly one target.");
+}
 
 Item failedSourceA = new("source", 2);
 Item failedSourceB = new("source", 3);
 var failedPlayer = new Farmer(2, failedSourceA, failedSourceB);
-UpgradeTransactionResult batchFailure = transactionService.Apply(failedPlayer, failedSourceA, new Item("target", 1), 3, 4, success: false);
+UpgradeTransactionResult batchFailure = transactionService.Apply(failedPlayer, failedSourceA, new Item("target", 1) { Value = 4 }, 3, 1, success: false);
 if (!batchFailure.IsSuccess || failedPlayer.Items[0] is not null || failedSourceB.Stack != 2)
-    throw new InvalidOperationException("A failed batch transaction must consume q without requiring output capacity.");
+    throw new InvalidOperationException("A failed batch must consume q without creating any output.");
 
 Item insufficientSource = new("source", 2);
 var insufficientPlayer = new Farmer(1, insufficientSource);
@@ -337,9 +341,13 @@ Item[] multiStackSources =
 ];
 var multiStackPlayer = new Farmer(5, multiStackSources);
 UpgradeTransactionResult multiStackTransaction = transactionService.Apply(multiStackPlayer, multiStackSources[0],
-    new Item("target", 1) { Value = 4 }, 4000, 2000, success: true);
-if (!multiStackTransaction.IsSuccess || !multiStackPlayer.Items.Select(item => item?.Stack).SequenceEqual([999, 999, 2, null, null]))
-    throw new InvalidOperationException("Large target batches must be distributed across multiple stacks.");
+    new Item("target", 1) { Value = 8000 }, 4000, 1, success: true);
+if (!multiStackTransaction.IsSuccess
+    || multiStackPlayer.Items.Count(item => item is not null) != 1
+    || multiStackPlayer.Items.Count(item => item is { QualifiedItemId: "target", Stack: 1 }) != 1)
+{
+    throw new InvalidOperationException("A batch spanning many source stacks must still create exactly one target item.");
+}
 
 Item invalidTargetSource = new("source", 2);
 var invalidTargetPlayer = new Farmer(1, invalidTargetSource);
@@ -361,6 +369,19 @@ if (transactionService.Apply(new Farmer(1, new Item("source", 1)), new Item("sou
     throw new InvalidOperationException("Invalid output quantities must return InvalidQuantity.");
 }
 
+// One operation may only ever produce one output item: any r > 1 is rejected
+// before any inventory mutation, on both the success and the failure path.
+Item singleOutputSource = new("source", 2);
+var singleOutputPlayer = new Farmer(2, singleOutputSource, null);
+foreach (bool rollResult in new[] { true, false })
+{
+    if (transactionService.Apply(singleOutputPlayer, singleOutputSource, new Item("target", 1) { Value = 4 }, 2, 2, rollResult).Status
+        != UpgradeTransactionStatus.InvalidQuantity || singleOutputSource.Stack != 2)
+    {
+        throw new InvalidOperationException("Output quantities above one must return InvalidQuantity without mutating inventory.");
+    }
+}
+
 Item lowerValueSource = new("source", 3) { Value = 2 };
 var lowerValuePlayer = new Farmer(1, lowerValueSource);
 if (transactionService.Apply(lowerValuePlayer, lowerValueSource, new Item("target", 1) { Value = 4 }, 3, 1, success: true).Status
@@ -371,10 +392,10 @@ if (transactionService.Apply(lowerValuePlayer, lowerValueSource, new Item("targe
 
 Item cheapTargetSource = new("source", 23) { Value = 2 };
 var cheapTargetPlayer = new Farmer(1, cheapTargetSource);
-if (!transactionService.Apply(cheapTargetPlayer, cheapTargetSource, new Item("target", 1) { Value = 1 }, 23, 46, success: true).IsSuccess
-    || cheapTargetPlayer.Items[0] is not { QualifiedItemId: "target", Stack: 46 })
+if (transactionService.Apply(cheapTargetPlayer, cheapTargetSource, new Item("target", 1) { Value = 1 }, 23, 1, success: true).Status
+    != UpgradeTransactionStatus.InvalidTarget || cheapTargetSource.Stack != 23)
 {
-    throw new InvalidOperationException("A cheaper target must be accepted when its batch total covers the source.");
+    throw new InvalidOperationException("A target that cannot cover the source batch alone must be rejected without mutation.");
 }
 
 void ExpectException<TException>(int source, int target, string parameter) where TException : ArgumentException
