@@ -6,6 +6,7 @@ var calculator = new UpgradeCalculator();
 var roller = new UpgradeRoller();
 var inventoryPlanner = new InventoryBatchPlanner();
 var acquisitionIndexer = new AcquisitionProfileIndexer();
+var pointsEngine = new PointsValuationEngine();
 
 // Acquisition profiles stay pure domain data: every route is evidenced and an
 // item may retain independent routes instead of being forced into one source type.
@@ -56,6 +57,7 @@ ExpectModelException(() => new AcquisitionRoute(AcquisitionKind.Shop, metrics, A
 ExpectModelException(() => new AcquisitionProfile(" ", [fishRoute]));
 ExpectModelException(() => new AcquisitionProfile("(O)128", Array.Empty<AcquisitionRoute>()));
 ExpectModelException(() => new ValuationBreakdown(coalProfile, -1));
+ExpectModelException(() => new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, double.NaN));
 
 // Core acquisition routes are indexed from fixture data without Stardew runtime or numeric item-ID assumptions.
 AcquisitionProfile salmon = acquisitionIndexer.Build("(O)139", new AcquisitionIndexData(
@@ -173,6 +175,74 @@ AcquisitionProfile mineralOnly = acquisitionIndexer.Build("(O)Mod.Mineral", new 
     Array.Empty<ForageSpawn>(), [new ItemMetadata("(O)Mod.Mineral", -2, ["mineral_item"])]));
 if (mineralOnly.Routes.Single().Kind != AcquisitionKind.Unknown)
     throw new InvalidOperationException("A mineral tag alone must not invent a mining route or difficulty.");
+
+// Points valuation is deterministic, bounded, player-independent, and only trusts reliable routes for selection.
+AcquisitionRoute reliableNeutralRoute = new(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Data/Shops", "canonical test")]);
+var neutralProfile = new AcquisitionProfile("(O)Neutral", [reliableNeutralRoute]);
+ValuationBreakdown firstValuation = pointsEngine.Evaluate(neutralProfile, 100);
+ValuationBreakdown secondValuation = pointsEngine.Evaluate(neutralProfile, 100);
+if (firstValuation.Points != secondValuation.Points || firstValuation.SelectedMultiplier != secondValuation.SelectedMultiplier
+    || !firstValuation.Routes.Select(route => (route.Score, route.Multiplier, route.Points)).SequenceEqual(
+        secondValuation.Routes.Select(route => (route.Score, route.Multiplier, route.Points)))
+    || firstValuation.Points != 100 || firstValuation.SelectedMultiplier != 1d)
+    throw new InvalidOperationException("Points valuation must be deterministic and independent of player state.");
+
+double rarity50 = pointsEngine.NormalizeProbabilityRarity(0.5d);
+double rarity10 = pointsEngine.NormalizeProbabilityRarity(0.1d);
+double rarity1 = pointsEngine.NormalizeProbabilityRarity(0.01d);
+double rarityPoint1 = pointsEngine.NormalizeProbabilityRarity(0.001d);
+if (!(rarity50 < rarity10 && rarity10 < rarity1 && rarity1 < rarityPoint1 && rarityPoint1 == 1d
+    && pointsEngine.NormalizeProbabilityRarity(0d) == 1d))
+    throw new InvalidOperationException("Probability rarity must be monotonic and strongly distinguish rare drops.");
+
+ValuationBreakdown commonProbability = pointsEngine.Evaluate(new AcquisitionProfile("(O)CommonProbability",
+    [new AcquisitionRoute(AcquisitionKind.Geode, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, 0.5d), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "50%")])]), 100);
+ValuationBreakdown rareProbability = pointsEngine.Evaluate(new AcquisitionProfile("(O)RareProbability",
+    [new AcquisitionRoute(AcquisitionKind.Geode, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0, 0.001d), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "0.1%")])]), 100);
+if (rareProbability.Points <= commonProbability.Points)
+    throw new InvalidOperationException("Route probability rarity must increase points nonlinearly for rarer drops.");
+
+ValuationBreakdown easy = pointsEngine.Evaluate(new AcquisitionProfile("(O)Easy",
+    [new AcquisitionRoute(AcquisitionKind.Fishing, new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "easy")])]), 100);
+ValuationBreakdown hard = pointsEngine.Evaluate(new AcquisitionProfile("(O)Hard",
+    [new AcquisitionRoute(AcquisitionKind.Fishing, new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+        [new AcquisitionEvidence("Test", "hard")])]), 100);
+if (hard.Points <= easy.Points || hard.SelectedMultiplier > PointsValuationEngine.MaximumMultiplier
+    || hard.SelectedMultiplier < PointsValuationEngine.MinimumMultiplier)
+{
+    throw new InvalidOperationException("Difficulty must be monotonic and the multiplier must remain bounded.");
+}
+
+var missingMetricsProfile = new AcquisitionProfile("(O)MissingMetrics",
+    [new AcquisitionRoute(AcquisitionKind.Unknown, new AcquisitionMetrics(null, null, null, null, null, null, null), AcquisitionConfidence.Low,
+        [new AcquisitionEvidence("Test", "missing")])]);
+if (pointsEngine.Evaluate(missingMetricsProfile, 100).Points != 100 || pointsEngine.Evaluate(missingMetricsProfile, 0).Points != 0)
+    throw new InvalidOperationException("Missing metadata and zero base value must fall back safely to the canonical base.");
+
+var reliableHard = new AcquisitionRoute(AcquisitionKind.Fishing,
+    new AcquisitionMetrics(100, 100, 100, 100, 100, 100, 0), AcquisitionConfidence.High,
+    [new AcquisitionEvidence("Test", "reliable hard")]);
+var guessedEasy = new AcquisitionRoute(AcquisitionKind.Shop,
+    new AcquisitionMetrics(0, 0, 0, 0, 0, 0, 100), AcquisitionConfidence.Low,
+    [new AcquisitionEvidence("Test", "guessed easy")]);
+ValuationBreakdown confidenceValuation = pointsEngine.Evaluate(new AcquisitionProfile("(O)Confidence", [reliableHard, guessedEasy]), 100);
+if (confidenceValuation.Points != pointsEngine.Evaluate(new AcquisitionProfile("(O)ReliableOnly", [reliableHard]), 100).Points
+    || confidenceValuation.Routes.Count != 2)
+{
+    throw new InvalidOperationException("A low-confidence route must be visible but cannot make a reliable rare route cheap.");
+}
+
+ValuationBreakdown hugeBase = pointsEngine.Evaluate(neutralProfile, int.MaxValue);
+if (hugeBase.Points != int.MaxValue || hugeBase.Routes.Any(route => double.IsNaN(route.Multiplier) || double.IsInfinity(route.Multiplier)))
+    throw new InvalidOperationException("Huge base values and extreme metrics must not overflow, produce NaN, or produce infinity.");
+
+ExpectPointsException(-0.01d);
+ExpectPointsException(1.01d);
 
 // Single-output target economics: target selection always evaluates the complete q * S batch.
 const int selectedSourceQuantity = 10;
@@ -801,6 +871,20 @@ void ExpectModelException(Action action)
     }
 
     throw new InvalidOperationException("Expected invalid acquisition-model input to be rejected.");
+}
+
+void ExpectPointsException(double chance)
+{
+    try
+    {
+        pointsEngine.NormalizeProbabilityRarity(chance);
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException("Expected invalid probability rarity input to be rejected.");
 }
 
 void ExpectFilter(TargetFilterMode mode, double chance, bool expected)

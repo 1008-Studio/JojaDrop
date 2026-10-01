@@ -35,7 +35,7 @@ public sealed record AcquisitionMetrics
     public const int Maximum = 100;
 
     public AcquisitionMetrics(int? difficulty, int? scarcity, int? access, int? effort, int? restrictions,
-        int? uniqueness, int? farmability)
+        int? uniqueness, int? farmability, double? availabilityChance = null)
     {
         Difficulty = Validate(difficulty, nameof(difficulty));
         Scarcity = Validate(scarcity, nameof(scarcity));
@@ -44,6 +44,7 @@ public sealed record AcquisitionMetrics
         Restrictions = Validate(restrictions, nameof(restrictions));
         Uniqueness = Validate(uniqueness, nameof(uniqueness));
         Farmability = Validate(farmability, nameof(farmability));
+        AvailabilityChance = ValidateChance(availabilityChance);
     }
 
     public int? Difficulty { get; }
@@ -53,11 +54,20 @@ public sealed record AcquisitionMetrics
     public int? Restrictions { get; }
     public int? Uniqueness { get; }
     public int? Farmability { get; }
+    public double? AvailabilityChance { get; }
 
     private static int? Validate(int? value, string parameterName)
     {
         if (value.HasValue && (value.Value < Minimum || value.Value > Maximum))
             throw new ArgumentOutOfRangeException(parameterName, value, $"Metrics must be between {Minimum} and {Maximum}.");
+
+        return value;
+    }
+
+    private static double? ValidateChance(double? value)
+    {
+        if (value.HasValue && (double.IsNaN(value.Value) || double.IsInfinity(value.Value) || value.Value < 0d || value.Value > 1d))
+            throw new ArgumentOutOfRangeException(nameof(value), value, "Availability chance must be between zero and one.");
 
         return value;
     }
@@ -135,19 +145,46 @@ public sealed record AcquisitionProfile
     public IReadOnlyList<AcquisitionRoute> Routes { get; }
 }
 
-/// <summary>A future points result and the profile it was derived from; no valuation policy is implied here.</summary>
+/// <summary>Per-route details from a deterministic points valuation.</summary>
+public sealed record RouteValuationBreakdown(AcquisitionRoute Route, double Difficulty, double Scarcity,
+    double Access, double Effort, double Restrictions, double Uniqueness, double Farmability, double Score,
+    double Multiplier, int Points, bool IsReliable);
+
+/// <summary>A deterministic points result and its route-level calculation.</summary>
 public sealed record ValuationBreakdown
 {
     public ValuationBreakdown(AcquisitionProfile profile, int points)
+        : this(profile, canonicalBaseValue: 0, points, selectedMultiplier: 1d,
+            Array.Empty<RouteValuationBreakdown>(), "No valuation calculation was supplied.")
+    {
+    }
+
+    public ValuationBreakdown(AcquisitionProfile profile, int canonicalBaseValue, int points, double selectedMultiplier,
+        IEnumerable<RouteValuationBreakdown> routes, string selectionReason)
     {
         ArgumentNullException.ThrowIfNull(profile);
+        if (canonicalBaseValue < 0)
+            throw new ArgumentOutOfRangeException(nameof(canonicalBaseValue), "Canonical base value cannot be negative.");
         if (points < 0)
             throw new ArgumentOutOfRangeException(nameof(points), "Points cannot be negative.");
+        if (double.IsNaN(selectedMultiplier) || double.IsInfinity(selectedMultiplier) || selectedMultiplier < 0d)
+            throw new ArgumentOutOfRangeException(nameof(selectedMultiplier));
+        ArgumentNullException.ThrowIfNull(routes);
+        if (string.IsNullOrWhiteSpace(selectionReason))
+            throw new ArgumentException("A selection reason is required.", nameof(selectionReason));
 
         Profile = profile;
+        CanonicalBaseValue = canonicalBaseValue;
         Points = points;
+        SelectedMultiplier = selectedMultiplier;
+        Routes = new ReadOnlyCollection<RouteValuationBreakdown>(routes.ToArray());
+        SelectionReason = selectionReason;
     }
 
     public AcquisitionProfile Profile { get; }
+    public int CanonicalBaseValue { get; }
     public int Points { get; }
+    public double SelectedMultiplier { get; }
+    public IReadOnlyList<RouteValuationBreakdown> Routes { get; }
+    public string SelectionReason { get; }
 }

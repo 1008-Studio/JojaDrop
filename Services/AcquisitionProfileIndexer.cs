@@ -56,7 +56,7 @@ public sealed class AcquisitionProfileIndexer
                 new AcquisitionMetrics(Percent(fish?.Difficulty), InversePercent(spawn.Chance), Level(level),
                     Distance(spawn.MinDistanceFromShore), RestrictionCount(spawn.Condition, spawn.Season, fish?.Weather,
                         fish?.TimeWindows.Count > 0, spawn.RequiresMagicBait),
-                    spawn.IsBossFish || spawn.CatchLimit == 1 ? 100 : null, 0),
+                    spawn.IsBossFish || spawn.CatchLimit == 1 ? 100 : null, 0, spawn.Chance),
                 fish is null ? AcquisitionConfidence.Medium : AcquisitionConfidence.High, evidence));
         }
     }
@@ -104,7 +104,7 @@ public sealed class AcquisitionProfileIndexer
         {
             routes.Add(new AcquisitionRoute(AcquisitionKind.Foraging,
                 new AcquisitionMetrics(0, InversePercent(spawn.Chance), null, 0,
-                    RestrictionCount(spawn.Condition, spawn.Season, null, false, false), null, 0), AcquisitionConfidence.High,
+                    RestrictionCount(spawn.Condition, spawn.Season, null, false, false), null, 0, spawn.Chance), AcquisitionConfidence.High,
                 new[] { new AcquisitionEvidence("Data/Locations", $"{spawn.LocationId}; chance={Format(spawn.Chance)}; season={spawn.Season ?? "any"}", spawn.Condition) }));
         }
 
@@ -123,7 +123,7 @@ public sealed class AcquisitionProfileIndexer
         {
             routes.Add(new AcquisitionRoute(AcquisitionKind.Geode,
                 new AcquisitionMetrics(null, InversePercent(drop.Chance), null, null,
-                    RestrictionCount(drop.Condition, null, null, false, false), null, 0), AcquisitionConfidence.High,
+                    RestrictionCount(drop.Condition, null, null, false, false), null, 0, drop.Chance), AcquisitionConfidence.High,
                 new[] { new AcquisitionEvidence("Data/Objects", $"geode={drop.GeodeItemId}; chance={Format(drop.Chance)}; output={drop.MinStack}-{drop.MaxStack}", drop.Condition) }));
         }
     }
