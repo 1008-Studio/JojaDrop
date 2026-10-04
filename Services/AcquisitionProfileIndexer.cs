@@ -2,7 +2,6 @@ using JojaDrop.Models;
 
 namespace JojaDrop.Services;
 
-/// <summary>Builds evidenced acquisition profiles from already-resolved game-data facts.</summary>
 public sealed class AcquisitionProfileIndexer
 {
     public AcquisitionProfile Build(string qualifiedItemId, AcquisitionIndexData data)
@@ -328,10 +327,12 @@ public sealed class AcquisitionProfileIndexer
         foreach (MachineProduction production in
                  productions.Where(entry => entry.ItemId == itemId))
         {
-            (int minOutput, int maxOutput) =
-                NormalizeMachineOutputRange(
-                    production.MinOutput,
-                    production.MaxOutput);
+            if (!ProductionOutputRules.TryNormalizeMachineRange(
+                    production.MinOutput, production.MaxOutput,
+                    out int minOutput, out int maxOutput))
+            {
+                continue;
+            }
 
             routes.Add(
                 new AcquisitionRoute(
@@ -380,6 +381,9 @@ public sealed class AcquisitionProfileIndexer
         foreach (RecipeProduction recipe in
                  recipes.Where(entry => entry.ItemId == itemId))
         {
+            if (!ProductionOutputRules.IsValidRange(recipe.OutputQuantity, recipe.OutputQuantity))
+                continue;
+
             routes.Add(
                 new AcquisitionRoute(
                     recipe.Kind,
@@ -482,23 +486,6 @@ public sealed class AcquisitionProfileIndexer
                 AcquisitionMetrics.Maximum,
                 minutes / 10
                 + days * AcquisitionMetrics.Maximum);
-
-    private static (int Min, int Max) NormalizeMachineOutputRange(
-        int minOutput,
-        int maxOutput)
-    {
-        int normalizedMin =
-            minOutput == -1
-                ? 1
-                : minOutput;
-
-        int normalizedMax =
-            maxOutput == -1
-                ? normalizedMin
-                : maxOutput;
-
-        return (normalizedMin, normalizedMax);
-    }
 
     private static int? Max(
         int? first,

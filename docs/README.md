@@ -1,4 +1,4 @@
-🇺🇸 English | 🇷🇺 [Русский](README.ru.md)
+🇬🇧 English | 🇷🇺 [Русский](README.ru.md)
 
 # JojaDrop
 Upgrade one selected item batch into one target item with probability `q * sourcePoints / targetPoints`.
