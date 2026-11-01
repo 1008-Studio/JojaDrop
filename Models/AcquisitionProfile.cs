@@ -93,6 +93,31 @@ public sealed record AcquisitionEvidence
     public string? Condition { get; }
 }
 
+/// <summary>Shared validation for production output quantities at data ingestion boundaries.</summary>
+public static class ProductionOutputRules
+{
+    /// <summary>Checks an already-resolved output range. Recipes do not accept sentinel quantities.</summary>
+    public static bool IsValidRange(int minOutput, int maxOutput) =>
+        minOutput > 0 && maxOutput >= minOutput;
+
+    /// <summary>
+    /// Resolves the existing machine defaults: -1 minimum means one item,
+    /// and -1 maximum means the resolved minimum. Other invalid ranges are rejected.
+    /// </summary>
+    public static bool TryNormalizeMachineRange(int minOutput, int maxOutput,
+        out int normalizedMin, out int normalizedMax)
+    {
+        normalizedMin = minOutput == -1 ? 1 : minOutput;
+        normalizedMax = maxOutput == -1 ? normalizedMin : maxOutput;
+        if (IsValidRange(normalizedMin, normalizedMax))
+            return true;
+
+        normalizedMin = 0;
+        normalizedMax = 0;
+        return false;
+    }
+}
+
 /// <summary>Static production facts for one output route; dynamic outputs intentionally have no expected output.</summary>
 public sealed record ProductionRelationship
 {
@@ -100,7 +125,7 @@ public sealed record ProductionRelationship
         bool isRandomOutput = false, bool hasCustomOutputMethod = false)
     {
         ArgumentNullException.ThrowIfNull(inputs);
-        if (minOutput < 1 || maxOutput < minOutput)
+        if (!ProductionOutputRules.IsValidRange(minOutput, maxOutput))
             throw new ArgumentOutOfRangeException(nameof(minOutput), "Production output must be positive and ordered.");
 
         ProductionInput[] inputItems = inputs.ToArray();
@@ -119,7 +144,7 @@ public sealed record ProductionRelationship
     public int MaxOutput { get; }
     public bool IsRandomOutput { get; }
     public bool HasCustomOutputMethod { get; }
-    public double? ExpectedOutput => IsRandomOutput || HasCustomOutputMethod ? null : (MinOutput + MaxOutput) / 2d;
+    public double? ExpectedOutput => IsRandomOutput || HasCustomOutputMethod ? null : ((long)MinOutput + MaxOutput) / 2d;
 }
 
 /// <summary>One evidenced way to acquire an item. Profiles may contain many routes.</summary>
