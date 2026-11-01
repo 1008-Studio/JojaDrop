@@ -2,7 +2,6 @@ using JojaDrop.Models;
 
 namespace JojaDrop.Services;
 
-/// <summary>Converts resolved deterministic Stardew production facts into final-price recipes.</summary>
 public sealed class ProductionRecipeExtractor
 {
     public IReadOnlyList<ProductionRecipe> Extract(AcquisitionIndexData data)
